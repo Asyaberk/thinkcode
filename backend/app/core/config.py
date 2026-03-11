@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
 class Settings(BaseSettings):
     DB_HOST: str = "127.0.0.1"
@@ -6,6 +7,10 @@ class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
     DB_DATABASE: str
+
+    JWT_SECRET_KEY: str = "thinkcode-super-secret-change-in-prod"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     model_config = SettingsConfigDict(
         env_file="../.env",
@@ -20,11 +25,8 @@ class Settings(BaseSettings):
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_DATABASE}"
         )
 
-    @property
-    def async_database_url(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.DB_USERNAME}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_DATABASE}"
-        )
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
-settings = Settings()
+settings = get_settings()
