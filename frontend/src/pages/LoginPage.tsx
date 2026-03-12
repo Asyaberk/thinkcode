@@ -1,17 +1,31 @@
 import React, { useState } from 'react';
-import { LogIn, UserPlus, Bot, Terminal } from 'lucide-react';
+import { LogIn, Bot, Terminal, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
-
-import { UserRole } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 interface LoginPageProps {
-  onLogin: (role: UserRole) => void;
+  onLogin: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
-  const [isRegister, setIsRegister] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole>('Student');
+  const { login, isLoading, error } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    try {
+      await login(email, password);
+      onLogin();
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
+    }
+  };
+
+  const displayError = localError || error;
 
   return (
     <div className="min-h-screen bg-[#0f172a] flex overflow-hidden">
@@ -30,24 +44,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           </div>
 
           <div className="mb-10">
-            <h1 className="text-4xl font-bold text-white tracking-tight mb-3">
-              {isRegister ? 'Create an account' : 'Welcome back'}
-            </h1>
-            <p className="text-slate-400 font-medium">
-              {isRegister 
-                ? 'Join thousands of students learning C++ today.' 
-                : 'Sign in to continue your learning journey.'}
-            </p>
+            <h1 className="text-4xl font-bold text-white tracking-tight mb-3">Welcome back</h1>
+            <p className="text-slate-400 font-medium">Sign in to continue your learning journey.</p>
           </div>
 
-          <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); onLogin(selectedRole); }}>
+          <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
               <input
                 type="email"
                 placeholder="name@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-slate-800 outline-none transition-all placeholder:text-slate-600 text-slate-200"
                 required
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
@@ -55,69 +66,54 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               <input
                 type="password"
                 placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-slate-800 outline-none transition-all placeholder:text-slate-600 text-slate-200"
                 required
+                autoComplete="current-password"
               />
             </div>
-            
-            {!isRegister && (
-              <div className="flex justify-end">
-                <button type="button" className="text-xs font-bold text-slate-500 hover:text-white transition-colors">
-                  Forgot password?
-                </button>
-              </div>
-            )}
 
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">Role</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole('Student')}
-                  className={cn(
-                    "py-3 rounded-xl text-xs font-bold border transition-all",
-                    selectedRole === 'Student' 
-                      ? "bg-emerald-500/10 border-emerald-500 text-emerald-500" 
-                      : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700"
-                  )}
-                >
-                  Student
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole('Instructor')}
-                  className={cn(
-                    "py-3 rounded-xl text-xs font-bold border transition-all",
-                    selectedRole === 'Instructor' 
-                      ? "bg-emerald-500/10 border-emerald-500 text-emerald-500" 
-                      : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700"
-                  )}
-                >
-                  Instructor
-                </button>
-              </div>
-            </div>
+            {displayError && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 font-medium"
+              >
+                {displayError}
+              </motion.div>
+            )}
 
             <button
               type="submit"
-              onClick={() => onLogin(selectedRole)}
-              className="w-full bg-emerald-500 text-slate-950 py-4 rounded-2xl font-bold hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-3"
+              disabled={isLoading}
+              className={cn(
+                "w-full bg-emerald-500 text-slate-950 py-4 rounded-2xl font-bold transition-all shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-3",
+                isLoading ? "opacity-70 cursor-not-allowed" : "hover:bg-emerald-400"
+              )}
             >
-              {isRegister ? <UserPlus size={18} /> : <LogIn size={18} />}
-              {isRegister ? 'Create Account' : 'Sign In'}
+              {isLoading ? (
+                <><Loader2 size={18} className="animate-spin" /> Signing in...</>
+              ) : (
+                <><LogIn size={18} /> Sign In</>
+              )}
             </button>
           </form>
 
-          <div className="mt-10 text-center">
-            <p className="text-sm text-slate-500 font-medium">
-              {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
-              <button
-                onClick={() => setIsRegister(!isRegister)}
-                className="font-bold text-emerald-400 hover:text-emerald-300 hover:underline underline-offset-4"
-              >
-                {isRegister ? 'Sign in' : 'Register now'}
-              </button>
-            </p>
+          <div className="mt-8 p-4 bg-slate-900/50 border border-slate-800 rounded-2xl space-y-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Demo Accounts</p>
+            <button
+              onClick={() => { setEmail('instructor@thinkcode.edu'); setPassword('Instructor123!'); }}
+              className="block text-xs text-slate-400 hover:text-emerald-400 transition-colors font-medium"
+            >
+              🎓 instructor@thinkcode.edu / Instructor123!
+            </button>
+            <button
+              onClick={() => { setEmail('emma.johnson@thinkcode.edu'); setPassword('Student123!'); }}
+              className="block text-xs text-slate-400 hover:text-emerald-400 transition-colors font-medium"
+            >
+              👨‍💻 emma.johnson@thinkcode.edu / Student123!
+            </button>
           </div>
         </motion.div>
       </div>
@@ -137,7 +133,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Platform Status: Online</span>
           </div>
           <h2 className="text-5xl font-bold text-white tracking-tight leading-tight mb-6">
-            Master C++ with <span className="text-emerald-500 italic font-serif">precision</span> and <span className="text-slate-400">clarity</span>.
+            Master Algorithms with <span className="text-emerald-500 italic font-serif">precision</span> and <span className="text-slate-400">clarity</span>.
           </h2>
           <p className="text-slate-400 text-lg font-medium leading-relaxed mb-10">
             Our Socratic AI tutor guides you through complex concepts without giving away the answers.
@@ -161,7 +157,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           </div>
         </motion.div>
 
-        {/* Decorative elements */}
         <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-emerald-500 rounded-full blur-[120px] opacity-10" />
         <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-emerald-500 rounded-full blur-[120px] opacity-10" />
       </div>

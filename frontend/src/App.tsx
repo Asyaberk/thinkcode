@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProblemsPage } from './pages/ProblemsPage';
@@ -12,32 +12,41 @@ import { QuestionPage } from './pages/QuestionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PlaygroundPage } from './pages/PlaygroundPage';
 import { InstructorDashboard } from './pages/InstructorDashboard';
-import { sections, lessons, questions } from './mockData';
-import { UserRole } from './types';
+import { sections as mockSections, lessons, questions } from './mockData';
+import { useAuth } from './context/AuthContext';
+import type { Section } from './types';
 
 type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'playground' | 'instructor-dashboard';
 
 export default function App() {
+  const { user, userRole, logout } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('login');
-  const [userRole, setUserRole] = useState<UserRole>('Student');
-  const [activeSectionId, setActiveSectionId] = useState(sections[0].id);
+  const [activeSectionId, setActiveSectionId] = useState(mockSections[0].id);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
-  const [userSections, setUserSections] = useState(sections);
+  const [userSections, setUserSections] = useState<Section[]>(mockSections);
 
-  const handleLogin = (role: UserRole) => {
-    setUserRole(role);
-    if (role === 'Instructor') {
-      setCurrentPage('instructor-dashboard');
+  // Restore page on session resume
+  useEffect(() => {
+    if (user) {
+      if (userRole === 'Instructor') {
+        setCurrentPage('instructor-dashboard');
+      } else {
+        setCurrentPage('dashboard');
+      }
     } else {
-      setCurrentPage('dashboard');
+      setCurrentPage('login');
     }
+  }, [user, userRole]);
+
+  const handleLogin = () => {
+    // AuthContext sets the user; useEffect above handles redirect
   };
 
   const handleLogout = () => {
-    setUserRole('Student');
+    logout();
     setCurrentPage('login');
   };
-  
+
   const handleSectionSelect = (id: string) => {
     setActiveSectionId(id);
     setActiveQuestionId(null);
@@ -53,7 +62,7 @@ export default function App() {
     setActiveQuestionId(null);
     setCurrentPage('question');
   };
-  
+
   const handleBack = () => {
     if (activeQuestionId) {
       setCurrentPage('problems');
@@ -67,13 +76,9 @@ export default function App() {
       setCurrentPage('problems');
       return;
     }
-
-    // Mark section as completed
-    setUserSections(prev => prev.map(s => 
-      s.id === activeSectionId ? { ...s, isCompleted: true } : s
-    ));
-    
-    // Find next section
+    setUserSections(prev =>
+      prev.map(s => s.id === activeSectionId ? { ...s, isCompleted: true } : s)
+    );
     const currentIndex = userSections.findIndex(s => s.id === activeSectionId);
     if (currentIndex < userSections.length - 1) {
       setActiveSectionId(userSections[currentIndex + 1].id);
@@ -85,18 +90,18 @@ export default function App() {
   };
 
   const currentLesson = lessons[activeSectionId] || lessons['cpp-basics'];
-  const currentQuestion = activeQuestionId 
-    ? questions[activeQuestionId] 
+  const currentQuestion = activeQuestionId
+    ? questions[activeQuestionId]
     : (questions[activeSectionId] || questions['cpp-basics']);
+
+  if (currentPage === 'login') {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   return (
     <div className="min-h-screen">
-      {currentPage === 'login' && (
-        <LoginPage onLogin={handleLogin} />
-      )}
-
       {currentPage === 'dashboard' && (
-        <DashboardPage 
+        <DashboardPage
           sections={userSections}
           onSectionSelect={handleSectionSelect}
           onProblemsClick={() => setCurrentPage('problems')}
@@ -109,7 +114,7 @@ export default function App() {
       )}
 
       {currentPage === 'problems' && (
-        <ProblemsPage 
+        <ProblemsPage
           sections={userSections}
           onProblemSelect={handleProblemSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
