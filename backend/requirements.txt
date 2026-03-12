@@ -9,3 +9,10 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
+
+# AI & LLM (Phase 4)
+langchain==0.1.13
+langchain-google-genai==1.0.1
+langchain-openai==0.1.1
+langgraph==0.0.30
+langfuse==2.22.1

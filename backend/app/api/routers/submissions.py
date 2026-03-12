@@ -1,78 +1,16 @@
 """
 Router: /api/v1/submissions
-Handles problem submission + automatic MCQ grading.
+MCQ auto-grading + open-response placeholder + mastery upsert via SQL.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 
 from app.api.deps import get_db, get_current_user
-from app.db.models import (
-    Submission, Problem, ProblemOption, StudentTopicMastery, HintRequest, User
-)
+from app.db.models import Submission, Problem, ProblemOption, HintRequest, User, StudentTopicMastery
 from app.schemas import SubmissionCreate, SubmissionOut
+from app.analytics.queries import recompute_mastery
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
-
-
-def _update_mastery(db: Session, student_id: str, class_id: str, problem: Problem):
-    """Recalculate mastery score for this topic after a submission."""
-    mastery = (
-        db.query(StudentTopicMastery)
-        .filter_by(student_id=student_id, topic_id=problem.topic_id, class_id=class_id)
-        .first()
-    )
-    if not mastery:
-        mastery = StudentTopicMastery(
-            student_id=student_id,
-            topic_id=problem.topic_id,
-            class_id=class_id,
-        )
-        db.add(mastery)
-
-    # Recalculate from all submissions for this topic
-    from sqlalchemy import func
-    stats = (
-        db.query(
-            func.count(Submission.id).label("attempted"),
-            func.sum(
-                db.query(func.cast(Submission.is_correct == True, func.Integer())).label("x")
-            )
-        )
-        .join(Problem, Submission.problem_id == Problem.id)
-        .filter(
-            Submission.student_id == student_id,
-            Submission.class_id == class_id,
-            Problem.topic_id == problem.topic_id,
-            Submission.is_correct != None,
-        )
-        .first()
-    )
-
-    # Simpler approach: count directly
-    all_subs = (
-        db.query(Submission)
-        .join(Problem, Submission.problem_id == Problem.id)
-        .filter(
-            Submission.student_id == student_id,
-            Submission.class_id == class_id,
-            Problem.topic_id == problem.topic_id,
-            Submission.is_correct != None,
-        )
-        .all()
-    )
-
-    if all_subs:
-        mastery.problems_attempted = len(set(s.problem_id for s in all_subs))
-        passed = [s for s in all_subs if s.is_correct]
-        mastery.problems_passed = len(set(s.problem_id for s in passed))
-
-        # Mastery = (problems passed / problems attempted) * 100, dampened by hints
-        raw = mastery.problems_passed / mastery.problems_attempted
-        mastery.mastery_score = round(raw * 100, 2)
-        mastery.last_activity_at = datetime.now(timezone.utc)
-
-    db.flush()
 
 
 @router.post("", response_model=SubmissionOut)
@@ -106,47 +44,66 @@ def submit(
 
     feedback = None
 
-    # ── MCQ: auto-grade ──────────────────────────────────────────────
+    # ── MCQ: auto-grade ──────────────────────────────────────────────────────
     if problem.type == "multiple_choice" and body.selected_option_id:
         option = db.get(ProblemOption, body.selected_option_id)
-        if option and option.problem_id == problem.id:
-            submission.is_correct = option.is_correct
-            submission.score = float(problem.points) if option.is_correct else 0.0
-            submission.status = "passed" if option.is_correct else "failed"
-            feedback = "Correct! Well done." if option.is_correct else (
-                f"Not quite. The correct answer is: {problem.correct_answer}"
-            )
-        else:
+        if not option or option.problem_id != problem.id:
             raise HTTPException(400, "Invalid option")
-
-    # ── Open response: compare against correct_answer (basic) ────────
-    elif problem.type == "open_response" and body.submitted_answer:
-        # TODO: replace with Grading LangGraph agent (Phase 4)
-        answer_lower = body.submitted_answer.strip().lower()
-        correct_lower = (problem.correct_answer or "").strip().lower()
-        is_correct = (len(answer_lower) > 20)  # placeholder: require substantial answer
-        submission.is_correct = is_correct
-        submission.score = float(problem.points) * 0.7 if is_correct else 0.0
-        submission.status = "passed" if is_correct else "failed"
+        submission.is_correct = option.is_correct
+        submission.score = float(problem.points) if option.is_correct else 0.0
+        submission.status = "passed" if option.is_correct else "failed"
         feedback = (
-            "Your answer has been recorded. AI grading will be available soon."
-            if is_correct
-            else "Please provide a more detailed answer."
+            "✓ Correct! Well done."
+            if option.is_correct
+            else f"Not quite. Hint: review the topic and try again."
         )
 
-    # ── Coding: mark pending (will be judged by judge service) ───────
-    elif problem.type == "coding":
+    # ── Open response: AI Auto-grading (LangGraph) ───────────────────────────
+    elif problem.type == "open_response" and body.submitted_answer:
+        from app.ai.grading import grade_submission_sync
+        from app.db.models import AiGradingResult
+        
+        # Invoke LangGraph AI grading
+        evaluation = grade_submission_sync(
+            problem_title=problem.title,
+            problem_description=problem.description,
+            grading_rubric=problem.grading_rubric or problem.correct_answer or "Grade on algorithmic correctness.",
+            max_score=float(problem.points),
+            student_answer=body.submitted_answer,
+            session_id=str(submission.id) if submission.id else None,
+            user_id=str(current_user.id)
+        )
+
+        submission.is_correct = evaluation["is_correct"]
+        submission.score = evaluation["score"]
+        submission.status = "passed" if evaluation["is_correct"] else "failed"
+        feedback = evaluation["feedback"]
+
+        # Prepare AiGradingResult row
+        grading_result = AiGradingResult(
+            feedback=evaluation["feedback"],
+            reasoning=evaluation["reasoning"],
+            rubric_score=evaluation["score"],
+            model_used="gpt-4o-mini",
+            langfuse_trace_id=evaluation.get("trace_id")
+        )
+        submission.grading_result = grading_result
+
+    # ── Coding: pending (judge service Phase 4) ───────────────────────────────
+    elif problem.type == "coding" and body.submitted_code:
         submission.status = "pending"
         submission.is_correct = None
-        feedback = "Your code has been submitted and is being evaluated."
+        submission.score = None
+        feedback = "Code submitted — evaluation pending."
+
     else:
-        raise HTTPException(400, "Invalid submission body for problem type")
+        raise HTTPException(400, "Invalid submission body for this problem type")
 
     db.add(submission)
-    db.flush()
+    db.flush()  # get submission.id
 
-    # Update mastery
-    _update_mastery(db, current_user.id, body.class_id, problem)
+    # ── Mastery upsert via optimized SQL ─────────────────────────────────────
+    recompute_mastery(db, current_user.id, body.class_id, problem.topic_id)
 
     db.commit()
     db.refresh(submission)
@@ -174,43 +131,83 @@ def request_hint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Deliver next hint for the submission's problem."""
+    """Deliver a personalized hint for the submission's problem using LangGraph Agent."""
+    from app.db.models import ProblemHint, Problem
+    from app.ai.hint import process_hint_request_sync
+
     sub = db.get(Submission, submission_id)
     if not sub or sub.student_id != current_user.id:
         raise HTTPException(404, "Submission not found")
 
-    # Find highest hint already given
-    last_hint = (
+    problem = db.get(Problem, sub.problem_id)
+    if not problem:
+        raise HTTPException(404, "Problem not found")
+
+    # Metrics for decision tree
+    attempts = db.query(Submission).filter_by(
+        student_id=current_user.id, problem_id=problem.id, is_correct=False
+    ).count()
+
+    hints_given = db.query(HintRequest).filter_by(
+        student_id=current_user.id, problem_id=problem.id
+    ).count()
+
+    # Determine highest sequential level from DB
+    last = (
         db.query(HintRequest)
-        .filter_by(student_id=current_user.id, problem_id=sub.problem_id)
+        .filter_by(student_id=current_user.id, problem_id=problem.id)
         .order_by(HintRequest.hint_level.desc())
         .first()
     )
-    next_level = (last_hint.hint_level + 1) if last_hint else 1
+    db_level = (last.hint_level + 1) if last else 1
+    if db_level > 3:
+        db_level = 3
 
-    from app.db.models import ProblemHint
-    hint = (
+    # Fetch baseline hint from DB
+    baseline_hint = (
         db.query(ProblemHint)
-        .filter_by(problem_id=sub.problem_id, level=next_level)
+        .filter_by(problem_id=problem.id, level=db_level)
         .first()
     )
-    if not hint:
-        return {"message": "No more hints available.", "hint": None, "level": next_level - 1}
 
+    db_hint_content = baseline_hint.content if baseline_hint else "Review the lesson material carefully."
+    db_socratic_question = baseline_hint.socratic_question if baseline_hint else ""
+    latest_submission_code = sub.submitted_code or sub.submitted_answer or "No content."
+
+    # Intervene with AI Agent
+    result = process_hint_request_sync(
+        student_id=current_user.id,
+        problem_id=problem.id,
+        attempts=attempts,
+        hints_given=hints_given,
+        problem_title=problem.title,
+        latest_submission=latest_submission_code,
+        db_hint_content=db_hint_content,
+        db_socratic_question=db_socratic_question,
+        session_id=str(sub.id)
+    )
+
+    # Log HintRequest
     hr = HintRequest(
         student_id=current_user.id,
-        problem_id=sub.problem_id,
+        problem_id=problem.id,
         submission_id=sub.id,
-        hint_level=next_level,
-        hint_delivered=hint.content,
+        hint_level=result["hint_level"],
+        context_code=latest_submission_code,
+        hint_delivered=result["generated_hint"],
+        trigger_reason=f"attempts_{attempts}_history_{hints_given}",
+        langfuse_trace_id=result.get("trace_id")
     )
     db.add(hr)
 
-    # Penalize mastery slightly for hint usage
-    problem = db.get(Problem, sub.problem_id)
+    # Penalize mastery slightly
     mastery = (
         db.query(StudentTopicMastery)
-        .filter_by(student_id=current_user.id, topic_id=problem.topic_id, class_id=sub.class_id)
+        .filter_by(
+            student_id=current_user.id,
+            topic_id=problem.topic_id,
+            class_id=sub.class_id,
+        )
         .first()
     )
     if mastery:
@@ -219,8 +216,8 @@ def request_hint(
     db.commit()
 
     return {
-        "level": next_level,
-        "content": hint.content,
-        "socratic_question": hint.socratic_question,
+        "level": result["hint_level"],
+        "content": result["generated_hint"],
         "max_level": 3,
+        "trace_id": result.get("trace_id")
     }

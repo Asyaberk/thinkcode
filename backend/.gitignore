@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.egg-info/
+
+# Alembic
+alembic/versions/*.py
+!alembic/versions/.gitkeep
+
+# Env
+.env
+*.env
+
+# IDE
+.DS_Store
+.idea/
+.vscode/

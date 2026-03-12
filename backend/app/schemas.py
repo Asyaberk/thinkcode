@@ -207,3 +207,20 @@ class InstructorDashboardOut(BaseModel):
     median_score: float
     knowledge_gaps: list[KnowledgeGapOut]
     student_ranking: list[StudentRankOut]
+
+# ── AI Tutor ──────────────────────────────────────────────────────────────
+class TutorMessage(BaseModel):
+    role: str
+    content: str
+
+class TutorChatRequest(BaseModel):
+    problem_id: str
+    new_message: str
+    chat_history: list[TutorMessage] = []
+    student_code_or_answer: Optional[str] = None
+
+class TutorChatResponse(BaseModel):
+    response: str
+    chat_history: list[TutorMessage]
+    trace_id: Optional[str] = None
+

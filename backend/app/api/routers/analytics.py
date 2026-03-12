@@ -1,137 +1,148 @@
 """
 Router: /api/v1/analytics
-Student & class-level learning analytics
+Student & class-level learning analytics — Phase 3 (optimized SQL queries)
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from typing import Optional
 
 from app.api.deps import get_db, get_current_user
-from app.db.models import (
-    User, Submission, Problem, StudentTopicMastery, Topic, Class, Enrollment
-)
-from app.schemas import (
-    StudentDashboardOut, MasteryOut, UserOut
+from app.db.models import User, Enrollment, Submission
+from app.analytics.queries import (
+    get_student_mastery_summary,
+    get_class_percentile_rank,
+    get_weekly_progress,
+    get_topic_breakdown,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-def _mastery_out(mastery: StudentTopicMastery, topic: Topic) -> MasteryOut:
-    return MasteryOut(
-        topic_id=topic.id,
-        topic_name=topic.name,
-        mastery_score=mastery.mastery_score,
-        problems_attempted=mastery.problems_attempted,
-        problems_passed=mastery.problems_passed,
-        total_hints_used=mastery.total_hints_used,
+def _get_class_id(db: Session, student_id: str) -> Optional[str]:
+    """Get the first active enrollment's class_id for a student."""
+    enrollment = (
+        db.query(Enrollment)
+        .filter_by(student_id=student_id, status="active")
+        .first()
     )
+    return enrollment.class_id if enrollment else None
 
 
-@router.get("/me/dashboard", response_model=StudentDashboardOut)
+# ─────────────────────────────────────────────────────────────────────────────
+# Student Dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/me/dashboard")
 def my_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Get first active enrollment's class_id
-    enrollment = (
-        db.query(Enrollment)
-        .filter_by(student_id=current_user.id, status="active")
-        .first()
-    )
-    class_id = enrollment.class_id if enrollment else None
+    class_id = _get_class_id(db, current_user.id)
 
-    # All submissions
-    subs = db.query(Submission).filter_by(student_id=current_user.id).all()
-    total_attempted = len(subs)
-    total_passed = sum(1 for s in subs if s.is_correct)
+    # Mastery summary — SQL aggregation, no loops
+    mastery_rows = get_student_mastery_summary(db, current_user.id)
 
-    # Mastery per topic
-    mastery_records = (
-        db.query(StudentTopicMastery)
-        .filter_by(student_id=current_user.id)
-        .all()
-    )
-
-    all_mastery = []
-    for m in mastery_records:
-        topic = db.get(Topic, m.topic_id)
-        if topic:
-            all_mastery.append(_mastery_out(m, topic))
-
-    weak_topics = sorted(all_mastery, key=lambda x: x.mastery_score)[:3]
-    recent_mastery = sorted(all_mastery, key=lambda x: x.mastery_score, reverse=True)[:5]
-
-    # Overall score as average mastery
-    overall = (
-        sum(m.mastery_score for m in all_mastery) / len(all_mastery)
-        if all_mastery else 0.0
-    )
-
-    # Percentile — compare to class peers
+    # Percentile — window function
+    percentile_data = {"percentile": 50.0, "rank": None, "total_students": 0, "avg_mastery": 0.0}
     if class_id:
-        class_scores = (
-            db.query(func.avg(StudentTopicMastery.mastery_score))
-            .filter(StudentTopicMastery.class_id == class_id)
-            .group_by(StudentTopicMastery.student_id)
-            .all()
-        )
-        scores = [float(r[0]) for r in class_scores if r[0] is not None]
-        below = sum(1 for s in scores if s < overall)
-        percentile = round((below / len(scores)) * 100, 1) if scores else 50.0
-    else:
-        percentile = 50.0
+        percentile_data = get_class_percentile_rank(db, current_user.id, class_id)
 
-    return StudentDashboardOut(
-        user=UserOut.model_validate(current_user),
-        total_problems_attempted=total_attempted,
-        total_problems_passed=total_passed,
-        overall_score=round(overall, 2),
-        percentile=percentile,
-        weak_topics=weak_topics,
-        recent_mastery=recent_mastery,
+    # Derive overall score from mastery rows
+    scored = [r for r in mastery_rows if r["problems_attempted"] > 0]
+    overall = (
+        sum(float(r["mastery_score"] or 0) for r in scored) / len(scored)
+        if scored else 0.0
     )
 
+    # Submission totals
+    subs = db.query(Submission).filter_by(student_id=current_user.id).all()
 
-@router.get("/me/mastery", response_model=list[MasteryOut])
+    return {
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "first_name": current_user.first_name,
+            "last_name": current_user.last_name,
+            "role": current_user.role,
+        },
+        "class_id": class_id,
+        "total_problems_attempted": len(subs),
+        "total_problems_passed": sum(1 for s in subs if s.is_correct),
+        "overall_mastery_score": round(overall, 2),
+        "percentile": float(percentile_data.get("percentile", 50.0)),
+        "rank": percentile_data.get("rank"),
+        "total_students_in_class": percentile_data.get("total_students", 0),
+        # Weak topics = lowest mastery, attempted
+        "weak_topics": sorted(
+            [r for r in mastery_rows if int(r.get("problems_attempted") or 0) > 0],
+            key=lambda x: float(x.get("mastery_score") or 0),
+        )[:3],
+        # Strong topics = highest mastery
+        "strong_topics": sorted(
+            [r for r in mastery_rows if int(r.get("problems_attempted") or 0) > 0],
+            key=lambda x: float(x.get("mastery_score") or 0),
+            reverse=True,
+        )[:3],
+        "all_topics": mastery_rows,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mastery List
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/me/mastery")
 def my_mastery(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    records = (
-        db.query(StudentTopicMastery)
-        .filter_by(student_id=current_user.id)
-        .all()
-    )
-    result = []
-    for m in records:
-        topic = db.get(Topic, m.topic_id)
-        if topic:
-            result.append(_mastery_out(m, topic))
-    return result
+    return get_student_mastery_summary(db, current_user.id)
 
 
-@router.get("/students/{student_id}/mastery", response_model=list[MasteryOut])
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-topic breakdown with badge level + completion %
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/me/topic-breakdown")
+def my_topic_breakdown(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    class_id = _get_class_id(db, current_user.id)
+    if not class_id:
+        raise HTTPException(404, "No active class enrollment found")
+    return get_topic_breakdown(db, current_user.id, class_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Weekly progress (time series for charts)
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/me/progress")
+def my_progress(
+    days: int = Query(30, ge=7, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return get_weekly_progress(db, current_user.id, days=days)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Any student's mastery (instructors can see any, students only themselves)
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/students/{student_id}/mastery")
 def student_mastery(
     student_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Students can only see their own; instructors see anyone
     if current_user.role == "student" and current_user.id != student_id:
         raise HTTPException(403, "Access denied")
-
-    records = db.query(StudentTopicMastery).filter_by(student_id=student_id).all()
-    result = []
-    for m in records:
-        topic = db.get(Topic, m.topic_id)
-        if topic:
-            result.append(_mastery_out(m, topic))
-    return result
+    return get_student_mastery_summary(db, student_id)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Recent submissions list
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/me/submissions")
 def my_submissions(
+    limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -139,7 +150,7 @@ def my_submissions(
         db.query(Submission)
         .filter_by(student_id=current_user.id)
         .order_by(Submission.submitted_at.desc())
-        .limit(50)
+        .limit(limit)
         .all()
     )
     return [
@@ -148,9 +159,11 @@ def my_submissions(
             "problem_id": s.problem_id,
             "status": s.status,
             "score": s.score,
+            "max_score": s.max_score,
             "is_correct": s.is_correct,
             "attempt_number": s.attempt_number,
-            "submitted_at": s.submitted_at,
+            "time_spent_seconds": s.time_spent_seconds,
+            "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         }
         for s in subs
     ]
