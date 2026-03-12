@@ -38,7 +38,7 @@ services:
   # ── Frontend (ThinkCode) ────────────────────────────────────────────────────
   app:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
       args:
         GEMINI_API_KEY: ${GEMINI_API_KEY:-}
