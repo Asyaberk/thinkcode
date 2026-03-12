@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isInstructor = userRole === 'Instructor';
 
   return (
-    <aside className="w-72 border-r border-slate-800 bg-[#0f172a] h-full flex flex-col fixed left-0 top-0 z-20">
+    <aside className="w-72 border-r border-slate-800 bg-[#0f172a] h-full flex flex-col fixed left-0 top-0 z-20 overflow-hidden">
       <div className="p-8">
         <h1 className="text-lg font-bold text-white flex items-center gap-3 tracking-tight">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-950 font-bold text-lg shadow-lg shadow-emerald-500/10">
@@ -98,11 +98,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
       
       {!isInstructor && (
-        <div className="px-4 mb-4">
+        <div className="px-4 flex-1 flex flex-col min-h-0 mb-4">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] px-4 mb-4">
             Learning Path
           </div>
-          <nav className="space-y-1">
+          <nav className="space-y-1 overflow-y-auto flex-1 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {sections.map((section) => (
               <button
                 key={section.id}

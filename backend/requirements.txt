@@ -1,18 +1,27 @@
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-psycopg2-binary==2.9.10
-alembic==1.14.0
-pydantic-settings==2.7.0
-python-dotenv==1.0.1
-bcrypt==5.0.0
+# ── Web Framework ────────────────────────────────────────────────────────────
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
-python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
 
-# AI & LLM (Phase 4)
-langchain==0.1.13
-langchain-google-genai==1.0.1
-langchain-openai==0.1.1
-langgraph==0.0.30
-langfuse==2.22.1
+# ── Database ─────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+psycopg2-binary==2.9.10
+asyncpg==0.30.0
+alembic==1.14.0
+
+# ── Config & Auth ────────────────────────────────────────────────────────────
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+python-jose[cryptography]==3.3.0
+bcrypt==5.0.0
+
+# ── AI & LLM (Phase 4-6) ─────────────────────────────────────────────────────
+langchain==1.2.12
+langchain-openai==1.1.11
+langchain-google-genai==4.2.1
+langgraph==1.1.1
+langfuse==4.0.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+beautifulsoup4==4.14.3
+requests==2.32.3

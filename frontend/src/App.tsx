@@ -12,20 +12,24 @@ import { QuestionPage } from './pages/QuestionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PlaygroundPage } from './pages/PlaygroundPage';
 import { InstructorDashboard } from './pages/InstructorDashboard';
-import { sections as mockSections, lessons, questions } from './mockData';
+import { questions } from './mockData';
 import { useAuth } from './context/AuthContext';
+import { useTopics } from './hooks/useTopics';
+import { useLessonForTopic } from './hooks/useLesson';
 import type { Section } from './types';
 
 type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'playground' | 'instructor-dashboard';
 
 export default function App() {
   const { user, userRole, logout } = useAuth();
+  const { sections, isLoading: topicsLoading } = useTopics();
   const [currentPage, setCurrentPage] = useState<Page>('login');
-  const [activeSectionId, setActiveSectionId] = useState(mockSections[0].id);
+  const [activeSectionId, setActiveSectionId] = useState<string>('');
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
-  const [userSections, setUserSections] = useState<Section[]>(mockSections);
+  // Track completion locally (Phase D API integration will replace this)
+  const [completionMap, setCompletionMap] = useState<Record<string, boolean>>({});
 
-  // Restore page on session resume
+  // Restore page on session / topics load
   useEffect(() => {
     if (user) {
       if (userRole === 'Instructor') {
@@ -38,9 +42,37 @@ export default function App() {
     }
   }, [user, userRole]);
 
-  const handleLogin = () => {
-    // AuthContext sets the user; useEffect above handles redirect
+  // Set default section once topics load
+  useEffect(() => {
+    if (sections.length > 0 && !activeSectionId) {
+      setActiveSectionId(sections[0].id);
+    }
+  }, [sections, activeSectionId]);
+
+  // Sections with local completion merged in
+  const sectionsWithCompletion: Section[] = sections.map(s => ({
+    ...s,
+    isCompleted: completionMap[s.id] ?? false,
+  }));
+
+  // Fetch lesson for current active section
+  const { lesson: apiLesson } = useLessonForTopic(
+    currentPage === 'learning' && activeSectionId ? activeSectionId : null
+  );
+
+  const fallbackLesson = {
+    id: activeSectionId,
+    sectionId: activeSectionId,
+    title: topicsLoading ? 'Loading...' : 'Select a Topic',
+    content: '# Loading lesson content...',
   };
+
+  const currentLesson = apiLesson ?? fallbackLesson;
+  const currentQuestion = activeQuestionId
+    ? questions[activeQuestionId]
+    : (questions[activeSectionId] || questions['cpp-basics']);
+
+  const handleLogin = () => { /* AuthContext handles state, useEffect handles redirect */ };
 
   const handleLogout = () => {
     logout();
@@ -76,23 +108,16 @@ export default function App() {
       setCurrentPage('problems');
       return;
     }
-    setUserSections(prev =>
-      prev.map(s => s.id === activeSectionId ? { ...s, isCompleted: true } : s)
-    );
-    const currentIndex = userSections.findIndex(s => s.id === activeSectionId);
-    if (currentIndex < userSections.length - 1) {
-      setActiveSectionId(userSections[currentIndex + 1].id);
+    setCompletionMap(prev => ({ ...prev, [activeSectionId]: true }));
+    const currentIndex = sections.findIndex(s => s.id === activeSectionId);
+    if (currentIndex < sections.length - 1) {
+      setActiveSectionId(sections[currentIndex + 1].id);
       setCurrentPage('learning');
     } else {
       alert("Congratulations! You've completed all lessons.");
       setCurrentPage('dashboard');
     }
   };
-
-  const currentLesson = lessons[activeSectionId] || lessons['cpp-basics'];
-  const currentQuestion = activeQuestionId
-    ? questions[activeQuestionId]
-    : (questions[activeSectionId] || questions['cpp-basics']);
 
   if (currentPage === 'login') {
     return <LoginPage onLogin={handleLogin} />;
@@ -102,7 +127,7 @@ export default function App() {
     <div className="min-h-screen">
       {currentPage === 'dashboard' && (
         <DashboardPage
-          sections={userSections}
+          sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onProblemsClick={() => setCurrentPage('problems')}
           onAnalyticsClick={() => setCurrentPage('analytics')}
@@ -115,7 +140,7 @@ export default function App() {
 
       {currentPage === 'problems' && (
         <ProblemsPage
-          sections={userSections}
+          sections={sectionsWithCompletion}
           onProblemSelect={handleProblemSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onLearningClick={() => setCurrentPage('learning')}
@@ -129,7 +154,7 @@ export default function App() {
 
       {currentPage === 'learning' && (
         <LearningPage
-          sections={userSections}
+          sections={sectionsWithCompletion}
           activeSectionId={activeSectionId}
           onSectionSelect={handleSectionSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
@@ -154,7 +179,7 @@ export default function App() {
 
       {currentPage === 'analytics' && (
         <AnalyticsPage
-          sections={userSections}
+          sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onProblemsClick={() => setCurrentPage('problems')}
@@ -167,7 +192,7 @@ export default function App() {
 
       {currentPage === 'playground' && (
         <PlaygroundPage
-          sections={userSections}
+          sections={sectionsWithCompletion}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onProblemsClick={() => setCurrentPage('problems')}
           onLearningClick={() => setCurrentPage('learning')}
@@ -182,7 +207,7 @@ export default function App() {
 
       {currentPage === 'instructor-dashboard' && (
         <InstructorDashboard
-          sections={userSections}
+          sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onProblemsClick={() => setCurrentPage('problems')}
