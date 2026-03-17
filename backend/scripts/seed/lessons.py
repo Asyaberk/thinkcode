@@ -502,7 +502,118 @@ When α exceeds threshold, **double** the table and rehash all keys.
             ],
         }
     ],
+    "fundamentals": [
+        {
+            "title": "Introduction to Algorithms",
+            "summary": "Core concepts and the scientific method of analyzing algorithms.",
+            "content_markdown": "## Fundamentals\n\nAlgorithms are the heart of computer science... (Content goes here)",
+            "estimated_minutes": 20,
+            "display_order": 1,
+            "princeton_section": "1.1",
+            "materials": []
+        }
+    ],
+    "sorting": [
+        {
+            "title": "Sorting Algorithms Overview",
+            "summary": "An overview of comparison-based sorting.",
+            "content_markdown": "## Sorting Overview\n\nSorting is fundamental to data processing...",
+            "estimated_minutes": 15,
+            "display_order": 1,
+            "princeton_section": "Chapter 2",
+            "materials": []
+        }
+    ],
+    "priority-queues": [
+        {
+            "title": "Priority Queues",
+            "summary": "Data structures that behave like queues but with ordering criteria.",
+            "content_markdown": "## Priority Queues\n\nUseful for optimization and path finding.",
+            "estimated_minutes": 25,
+            "display_order": 1,
+            "princeton_section": "2.4",
+            "materials": []
+        }
+    ],
+    "searching": [
+        {
+            "title": "Searching Essentials",
+            "summary": "An introduction to search and symbol tables.",
+            "content_markdown": "## Searching\n\nFinding elements in a collection efficiently.",
+            "estimated_minutes": 15,
+            "display_order": 1,
+            "princeton_section": "Chapter 3",
+            "materials": []
+        }
+    ],
+    "balanced-bst": [
+        {
+            "title": "Balanced BSTs",
+            "summary": "Red-Black Trees and guaranteed logarithmic performance.",
+            "content_markdown": "## Balanced BSTs\n\nAvoids linear worst case time complexity.",
+            "estimated_minutes": 35,
+            "display_order": 1,
+            "princeton_section": "3.3",
+            "materials": []
+        }
+    ],
+    "graphs": [
+        {
+            "title": "Graph Applications",
+            "summary": "Introduction to wide array of graph applications.",
+            "content_markdown": "## Graphs\n\nA mathematical structure to model pairwise relations between objects.",
+            "estimated_minutes": 15,
+            "display_order": 1,
+            "princeton_section": "Chapter 4",
+            "materials": []
+        }
+    ],
+    "directed-graphs": [
+        {
+            "title": "Digraphs",
+            "summary": "Graphs where edges have a direction associated with them.",
+            "content_markdown": "## Digraphs\n\nDirected applications such as web linking and prerequisites.",
+            "estimated_minutes": 25,
+            "display_order": 1,
+            "princeton_section": "4.2",
+            "materials": []
+        }
+    ],
+    "mst": [
+        {
+            "title": "Minimum Spanning Trees",
+            "summary": "Finding the cheapest network to connect all nodes.",
+            "content_markdown": "## Minimum Spanning Trees\n\nKruskal and Prim algorithms.",
+            "estimated_minutes": 30,
+            "display_order": 1,
+            "princeton_section": "4.3",
+            "materials": []
+        }
+    ],
+    "strings": [
+        {
+            "title": "String Processing",
+            "summary": "Advanced string processing and algorithms.",
+            "content_markdown": "## String Processing\n\nText processing is ubiquitous in computer applications.",
+            "estimated_minutes": 35,
+            "display_order": 1,
+            "princeton_section": "Chapter 5",
+            "materials": []
+        }
+    ],
+    "dynamic-programming": [
+        {
+            "title": "Dynamic Programming",
+            "summary": "Breaking down problems into simpler sub-problems.",
+            "content_markdown": "## Dynamic Programming\n\nMemoization and bottom-up solutions.",
+            "estimated_minutes": 40,
+            "display_order": 1,
+            "princeton_section": "Extra",
+            "materials": []
+        }
+    ]
 }
+
 
 
 def seed_lessons(db, topic_map: dict) -> dict:
