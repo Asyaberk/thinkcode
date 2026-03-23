@@ -18,7 +18,7 @@ docker compose up -d --build
 
 | Service | URL |
 |---|---|
-| Frontend | http://localhost:3000 |
+| Frontend | http://localhost:8080 |
 | Backend API Docs | http://localhost:8000/api/docs |
 | pgAdmin | http://localhost:5050 |
 
