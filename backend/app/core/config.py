@@ -1,3 +1,20 @@
+"""
+config.py — Uygulama Ayarları (Environment Variables)
+
+Tüm hassas bilgiler (DB şifresi, API anahtarları) kodun içine YAZILMAZ.
+Bunun yerine .env dosyasından ya da Docker ortam değişkenlerinden okunur.
+Pydantic BaseSettings sınıfı bu okuma işlemini otomatik yapar.
+
+AYAR GRUPLARI:
+  DB_*          → PostgreSQL bağlantı bilgileri (host, port, user, pass, db adı)
+  JWT_*         → JSON Web Token şifrelemesi için gizli anahtar ve süre (24 saat)
+  OPENAI_*      → ChatGPT / gpt-4o-mini API anahtarı
+  LANGFUSE_*    → AI gözlemlenebilirlik platformu (isteğe bağlı)
+
+database_url   → SQLAlchemy'nin anlayacağı PostgreSQL bağlantı URL'si
+get_settings() → Singleton: ayarlar yalnızca bir kez yüklenir, sonra cache'den gelir
+settings       → Proje genelinde import edilip kullanılan tekil nesne
+"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 

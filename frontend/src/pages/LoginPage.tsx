@@ -37,10 +37,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           className="max-w-md w-full mx-auto"
         >
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-950 text-xl font-bold shadow-lg shadow-emerald-500/20">
+            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-base shadow-lg shadow-emerald-500/20 shrink-0">
               T
             </div>
-            <span className="text-xl font-bold tracking-tight text-white">ThinkCode</span>
+            <div className="leading-none">
+              <span className="text-[18px] font-light text-slate-300 tracking-tight">Think</span><span className="text-[18px] font-bold text-emerald-400 tracking-tight">Code</span>
+            </div>
           </div>
 
           <div className="mb-10">
@@ -113,6 +115,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               className="block text-xs text-slate-400 hover:text-emerald-400 transition-colors font-medium"
             >
               👨‍💻 emma.johnson@thinkcode.edu / Student123!
+            </button>
+            <button
+              onClick={() => { setEmail('audrey.rivera@thinkcode.edu'); setPassword('Student123!'); }}
+              className="block text-xs text-slate-400 hover:text-red-400 transition-colors font-medium"
+            >
+              📉 audrey.rivera@thinkcode.edu / Student123!
+            </button>
+            <button
+              onClick={() => { setEmail('new.student@thinkcode.edu'); setPassword('Student123!'); }}
+              className="block text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
+            >
+              🆕 new.student@thinkcode.edu / Student123!
             </button>
           </div>
         </motion.div>

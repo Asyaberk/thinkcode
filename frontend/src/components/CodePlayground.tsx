@@ -15,19 +15,22 @@ interface CodePlaygroundProps {
   selectedOptionId?: string | null;
   onOptionSelect?: (id: string) => void;
   type?: string;
+  /** Submit islemi sirasinda Check Solution butonunu disable et */
+  isSubmitting?: boolean;
 }
 
-export const CodePlayground: React.FC<CodePlaygroundProps> = ({ 
-  code, 
-  onCodeChange, 
-  onRun, 
+export const CodePlayground: React.FC<CodePlaygroundProps> = ({
+  code,
+  onCodeChange,
+  onRun,
   onExplain,
   output,
   description,
   options,
   selectedOptionId,
   onOptionSelect,
-  type
+  type,
+  isSubmitting = false,
 }) => {
   return (
     <div className="h-full flex flex-col bg-[#0d1117] text-slate-300 rounded-2xl overflow-hidden shadow-2xl border border-white/5">
@@ -49,7 +52,7 @@ export const CodePlayground: React.FC<CodePlaygroundProps> = ({
             <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
           </div>
           <div className="flex items-center gap-2 px-3 py-1 bg-[#0d1117] rounded-md border border-white/5">
-            <span className="text-[11px] font-mono text-slate-400">main.cpp</span>
+            <span className="text-[11px] font-mono text-slate-400">main.py</span>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -65,10 +68,22 @@ export const CodePlayground: React.FC<CodePlaygroundProps> = ({
           </button>
           <button
             onClick={onRun}
-            className="flex items-center gap-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)] active:scale-95"
+            disabled={isSubmitting}
+            className={`flex items-center gap-2.5 px-5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+              isSubmitting
+                ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+            }`}
           >
-            <Play size={14} fill="currentColor" />
-            Check Solution
+            {isSubmitting ? (
+              // Yukleniyor animasyonu
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+            ) : (
+              <><Play size={14} fill="currentColor" /> Check Solution</>
+            )}
           </button>
         </div>
       </div>
@@ -147,7 +162,7 @@ export const CodePlayground: React.FC<CodePlaygroundProps> = ({
             Answers
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {options.map((option) => (
+            {options.map((option, index) => (
               <button
                 key={option.id}
                 onClick={() => onOptionSelect?.(option.id)}
@@ -158,11 +173,12 @@ export const CodePlayground: React.FC<CodePlaygroundProps> = ({
                     : "bg-slate-900 border-slate-800 text-slate-300 hover:border-emerald-500/50 hover:bg-slate-800"
                 )}
               >
+                {/* A/B/C/D harfi — UUID yerine index bazlı */}
                 <div className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors",
+                  "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black transition-colors flex-shrink-0",
                   selectedOptionId === option.id ? "bg-slate-950 text-emerald-400" : "bg-slate-800 text-slate-500 group-hover:text-emerald-400"
                 )}>
-                  {option.id.toUpperCase()}
+                  {String.fromCharCode(65 + index)}
                 </div>
                 <code className="text-[12px] font-mono font-bold">{option.text}</code>
               </button>

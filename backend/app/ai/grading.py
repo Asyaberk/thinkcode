@@ -1,3 +1,26 @@
+"""
+grading.py — AI Tabanlı Cevap Notlandırma Modülü
+
+submissions.py router tarafından kodlama ve açık uçlu sorularda çağrılır.
+MCQ sorular burada notlandırılmaz (doğrudan is_correct kullanılır).
+
+MİMARİ:
+  LangGraph StateGraph → tek node "evaluate" → END
+
+GradingState (durumlar):
+  Girdi : problem_title, problem_description, grading_rubric, max_score, student_answer
+  Çıktı : score (sayısal), is_correct (boolean), feedback (öğrenciye), reasoning (özel not)
+
+evaluate_answer(state):
+  → GPT-4o-mini'ye structured output (EvaluationResult Pydantic model) ile çağrı yapar.
+  → Öğrenci cevabını rubric'e göre değerlendirir.
+  → is_correct = rubric'in belirli bir eşiğini geçip geçmediği
+
+grade_submission_sync(...):
+  → Dışarıdan çağrılan PUBLIC fonksiyon (submissions.py router kullanır).
+  → LangGraph çalıştırır, sonuç dict döner.
+  → Langfuse yapılandırılmışsa tracing kaydı tutulur.
+"""
 import json
 from typing import Annotated, TypedDict
 from pydantic import BaseModel, Field

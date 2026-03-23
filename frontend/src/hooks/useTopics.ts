@@ -15,13 +15,14 @@ interface UseTopicsResult {
  * Sub-topics are included with indented titles.
  */
 function topicsToSections(topics: Topic[]): Section[] {
-  const difficultyMap: Record<string, boolean> = {};
   return topics.map(t => ({
     id: t.id,
     title: t.name,
-    isCompleted: difficultyMap[t.id] ?? false,
+    isCompleted: false,              // App.tsx topicMasteryMap ile override edilir
+    parentId: t.parent_topic_id,     // Sidebar hiyerarşisi için
   }));
 }
+
 
 export function useTopics(): UseTopicsResult {
   const [topics, setTopics] = useState<Topic[]>([]);

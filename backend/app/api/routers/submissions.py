@@ -1,6 +1,29 @@
 """
-Router: /api/v1/submissions
-MCQ auto-grading + open-response placeholder + mastery upsert via SQL.
+submissions.py — Öğrenci Cevabı Kaydetme ve Otomatik Notlandırma
+
+Bu router öğrencinin bir soruyu çözdüğünde çalışır.
+
+POST /submissions  →  Yeni cevap kaydet
+  İŞ AKIŞI:
+  1. Soruyu ve soruya kayıtlı sınıfı veritabanından çek
+  2. Cevap tipine göre notlandır:
+     - multiple_choice  : Seçili seçeneğin is_correct alanına bak → anında doğru/yanlış
+     - coding           : ai.grading modülü → GPT-4o-mini rubric + kod benzerliği
+     - open_response    : ai.grading modülü → GPT-4o-mini açık uçlu değerlendirme
+  3. student_topic_mastery tablosunu güncelle (upsert):
+     - problems_attempted +1
+     - problems_passed +1 (eğer doğruysa)
+     - mastery_score = 100 * passed / attempted
+  4. Submission nesnesini kaydet, SubmissionOut olarak dön
+
+GET /submissions/me/solved-problem-ids
+  → Öğrencinin doğru çözdüğü tüm problem ID'lerini döner.
+    Frontend sidebar'daki yeşil ✓ işaretleri için kullanılır.
+
+POST /submissions/{submission_id}/hint
+  → Öğrenci ipucu istediğinde çalışır.
+    ai.hint modülü (LangChain + GPT) kademeli hint üretir (level 1,2,3).
+    hint_requests tablosuna kayıt eklenir.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -23,6 +46,14 @@ def submit(
     if not problem or not problem.is_published:
         raise HTTPException(404, "Problem not found")
 
+    # class_id: frontend'den gelirse kullan, gelmezse enrollment'dan al
+    # Bu sayede frontend class_id'yi cekemese bile mastery guncellenir
+    effective_class_id = body.class_id
+    if not effective_class_id:
+        from app.db.models import Enrollment
+        enrollment = db.query(Enrollment).filter_by(student_id=current_user.id).first()
+        effective_class_id = str(enrollment.class_id) if enrollment else None
+
     # Count previous attempts
     attempt_n = (
         db.query(Submission)
@@ -33,7 +64,7 @@ def submit(
     submission = Submission(
         student_id=current_user.id,
         problem_id=body.problem_id,
-        class_id=body.class_id,
+        class_id=effective_class_id,  # Enrollment'dan alinan class_id'yi kullan
         submitted_code=body.submitted_code,
         submitted_answer=body.submitted_answer,
         selected_option_id=body.selected_option_id,
@@ -103,7 +134,9 @@ def submit(
     db.flush()  # get submission.id
 
     # ── Mastery upsert via optimized SQL ─────────────────────────────────────
-    recompute_mastery(db, current_user.id, body.class_id, problem.topic_id)
+    # effective_class_id: body.class_id bossa enrollment'dan alindi (satir 26-31)
+    if effective_class_id:
+        recompute_mastery(db, current_user.id, effective_class_id, problem.topic_id)
 
     db.commit()
     db.refresh(submission)
@@ -113,7 +146,29 @@ def submit(
     return result
 
 
+@router.get("/me/solved-problem-ids")
+def get_solved_problem_ids(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Kullanicinin daha once dogru cevapladigi (is_correct=True) problem_id listesini doner.
+    ProblemsPage'de yeşil Solved status icin kullanilir.
+    """
+    rows = (
+        db.query(Submission.problem_id)
+        .filter(
+            Submission.student_id == current_user.id,
+            Submission.is_correct == True,
+        )
+        .distinct()
+        .all()
+    )
+    return {"solved_problem_ids": [str(r[0]) for r in rows]}
+
+
 @router.get("/{submission_id}", response_model=SubmissionOut)
+
 def get_submission(
     submission_id: str,
     db: Session = Depends(get_db),

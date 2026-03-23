@@ -2,7 +2,6 @@ import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { LessonContent } from '../components/LessonContent';
-import { AIChatbot } from '../components/AIChatbot';
 import { Section, Lesson, UserRole } from '../types';
 
 interface LearningPageProps {
@@ -12,7 +11,6 @@ interface LearningPageProps {
   onDashboardClick: () => void;
   onProblemsClick: () => void;
   onAnalyticsClick: () => void;
-  onPlaygroundClick?: () => void;
   onInstructorDashboardClick?: () => void;
   onLogout?: () => void;
   userRole?: UserRole;
@@ -27,7 +25,6 @@ export const LearningPage: React.FC<LearningPageProps> = ({
   onDashboardClick,
   onProblemsClick,
   onAnalyticsClick,
-  onPlaygroundClick,
   onInstructorDashboardClick,
   onLogout,
   userRole,
@@ -43,10 +40,10 @@ export const LearningPage: React.FC<LearningPageProps> = ({
         onDashboardClick={onDashboardClick}
         onProblemsClick={onProblemsClick}
         onAnalyticsClick={onAnalyticsClick}
-        onPlaygroundClick={onPlaygroundClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
         onLogout={onLogout}
         userRole={userRole}
+        progressPercent={sections.length > 0 ? Math.round((sections.filter(s => s.isCompleted).length / sections.length) * 100) : 0}
       />
       
       <main className="flex-1 ml-72 overflow-y-auto relative">
@@ -57,22 +54,11 @@ export const LearningPage: React.FC<LearningPageProps> = ({
             <ChevronRight size={10} />
             <span className="text-white">{lesson.title}</span>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex -space-x-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="w-6 h-6 rounded-full border-2 border-[#0f172a] bg-slate-800 flex items-center justify-center overflow-hidden">
-                  <img src={`https://picsum.photos/seed/${i}/32/32`} alt="User" referrerPolicy="no-referrer" />
-                </div>
-              ))}
-            </div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">12 Students Online</span>
-          </div>
         </header>
 
         <LessonContent lesson={lesson} onNext={onNext} />
       </main>
 
-      <AIChatbot context={lesson.title} />
     </div>
   );
 };

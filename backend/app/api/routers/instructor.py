@@ -1,6 +1,11 @@
 """
 Router: /api/v1/instructor
-Instructor-facing analytics — Phase 3 (optimized SQL queries)
+Instürktör yöneltimi analytics — sınıf dashboard'u, bilgi boşlukları, öğrenci sıralaması.
+
+- GET /instructor/me/class         → instructor'un kendi class bilgisi
+- GET /instructor/{class_id}/dashboard → tam sınıf analitiği
+- GET /instructor/{class_id}/students  → öğrenci sıralaması
+- POST /instructor/{class_id}/analyze-gaps → AI gap analizi + kaydetme
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -16,6 +21,47 @@ from app.analytics.queries import (
 )
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instructor Me — Login olan instructor'un kendi class'ini döndürür.
+# InstructorDashboard.tsx bu endpoint ile class_id'yi öğrenir;
+# böylece hardcoded class_id kullanmak zorunda kalmaz.
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/me/class")
+def my_class(
+    db: Session = Depends(get_db),
+    instructor: User = Depends(require_instructor),
+):
+    """
+    Login olan instructor'un ilk aktif class'ini döndürür.
+    Dönüş: { class_id, class_name, class_code, total_students }
+    """
+    # Instructor'a ait ilk aktif class'i bul
+    cls = (
+        db.query(Class)
+        .filter_by(instructor_id=instructor.id, is_active=True)
+        .order_by(Class.created_at.asc())
+        .first()
+    )
+    if not cls:
+        raise HTTPException(404, "No active class found for this instructor")
+
+    # Kaç öğrenci kayıtlı?
+    total_students = (
+        db.query(func.count(Enrollment.id))
+        .filter_by(class_id=cls.id, status="active")
+        .scalar() or 0
+    )
+
+    return {
+        "class_id": cls.id,
+        "class_name": cls.name,
+        "class_code": cls.code,
+        "semester": cls.semester,
+        "total_students": total_students,
+    }
+
 
 
 @router.get("/{class_id}/dashboard")

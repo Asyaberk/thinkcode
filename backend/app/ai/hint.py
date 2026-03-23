@@ -1,3 +1,25 @@
+"""
+hint.py — Kademeli AI İpucu Sistemi
+
+submissions.py router'ın POST /submissions/{id}/hint endpoint'i tarafından çağrılır.
+
+KARAR MANTIĞI (decide_and_generate_hint):
+  Öğrencinin daha önce kaç deneme yaptığına ve kaç hint aldığına göre seviye belirlenir:
+  - Seviye 1 (ilk deneme)  : Sokratik soru — "Neden böyle düşündün?"
+  - Seviye 2 (2-3 deneme) : Kısmi açıklama + yönlendirici soru
+  - Seviye 3 (3+ deneme)  : Güçlü ipucu (ama direkt cevap yok)
+
+DB'den gelen hint verisi (db_hint_content, db_socratic_question), GPT'ye bağlam olarak verilir.
+GPT kendi diliyle öğrenciye kişiselleştirilmiş bir hint üretir.
+
+MİMARİ:
+  LangGraph StateGraph → tek node "hint_agent" → END
+
+process_hint_request_sync(...):
+  → Dışarıdan çağrılan PUBLIC fonksiyon.
+  → Girdi: öğrenci ID, soru ID, dene sayısı, hint sayısı, son cevap
+  → Çıktı: hint_level, generated_hint (metin), trace_id (Langfuse)
+"""
 from typing import TypedDict, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate

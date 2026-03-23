@@ -1,3 +1,11 @@
+/**
+ * api/topics.ts — Konu ve Ders API çağrıları
+ *
+ * KULLANIM:
+ *   getTopics()                  → GET /topics        — useTopics hook üzerinden tüm uygulamaya dağıtılır
+ *   getTopicLessons(topicId)     → GET /topics/{id}/lessons — useLesson hook
+ *   getLesson(lessonId)          → GET /lessons/{id}  — useLesson hook (materyal detayı için)
+ */
 import { api } from './client';
 import type { Topic, ApiLesson } from '../types';
 

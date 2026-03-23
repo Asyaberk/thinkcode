@@ -1,7 +1,45 @@
 """
-analytics/queries.py
-Optimized analytics queries using SQLAlchemy + raw SQL window functions.
-All queries return plain dicts/lists — no ORM object references.
+analytics/queries.py — Tüm Analytics SQL Sorguları
+
+Bu dosya uygulamanın en kritik katmanıdır: ham SQL (+ SQLAlchemy text()) kullanarak
+veritabanından analitik veriler hesaplanır. ORM nesnesi yerine saf dict/list döner.
+
+FONKSİYONLAR:
+  get_student_mastery_summary(db, student_id)
+    → Öğrencinin her konu için mastery (ustalık) skorunu hesaplar.
+      CRITICAL: En son deneme baz alınır (latest attempt per problem).
+      Dashboard, AnalyticsPage ve AI insight için kullanılır.
+
+  get_class_percentile_rank(db, student_id, class_id)
+    → Öğrencinin sınıf içindeki sırasını ve yüzdelik dilimini hesaplar.
+      SQL RANK() pencere fonksiyonu kullanır.
+      "Top 25%" gibi görsel göstergeler için kullanılır.
+
+  get_weekly_progress(db, student_id, days)
+    → Son N günün günlük aktivitesini döner (her gün kaç soru denenip kaçı doğru).
+      Daily Activity grafiği için.
+
+  get_topic_breakdown(db, student_id, class_id)
+    → Konuya göre doğruluk oranını döner. Topic-breakdown endpointi için.
+
+  get_streak_days(db, student_id)
+    → Öğrencinin kaç gün üst üste soruya girdiğini hesaplar (streak).
+
+  detect_knowledge_gaps(db, class_id, ...)
+    → Sınıf düzeyinde: hangi sorular en çok yanlış yapılıyor?
+      Instructor dashboard "Knowledge Gaps" bölümü için.
+      avg_hints_per_student: problem_id üzerinden doğrudan join yapar.
+
+  get_class_student_ranking(db, class_id)
+    → Tüm öğrencileri ortalama mastery skoruna göre sıralar.
+      Instructor dashboard öğrenci tablosu için.
+
+SQL TEKNİKLERİ:
+  - DISTINCT ON (problem_id) → PostgreSQL'e özgü, her sorunun en son cevabını seçer
+  - RANK() OVER (ORDER BY ...)→ Öğrenci sıralaması için pencere fonksiyonu
+  - NULLIF(..., 0)            → Sıfıra bölmeyi önlemek için
+  - COALESCE(expr, 0)         → NULL yerine 0 kullan
+  - WITH ... AS (CTE)         → Karmaşık sorguları adımlamak için ortak tablo ifadesi
 """
 from __future__ import annotations
 from sqlalchemy.orm import Session
@@ -16,39 +54,55 @@ from datetime import datetime, timezone, timedelta
 def get_student_mastery_summary(db: Session, student_id: str) -> list[dict]:
     """
     Returns per-topic mastery aggregated directly in SQL.
-    Uses submissions + problems to recompute fresh (not from cache table).
+
+    KRITIK FIX: LATEST attempt per problem kullanir.
+    Eski: COUNT(DISTINCT CASE WHEN is_correct THEN problem_id) = once dogru olan problem
+    hep passed sayilir, yanlis yaparsan azalmaz.
+    Yeni: Her problem icin cena son submission gecerli — yanlis yaptiysan 0 puan.
     """
     sql = text("""
+        WITH latest_per_problem AS (
+            -- Her problem icin en son submission
+            SELECT DISTINCT ON (s.problem_id)
+                s.problem_id,
+                s.student_id,
+                p.topic_id,
+                s.is_correct   AS last_correct,
+                s.submitted_at
+            FROM submissions s
+            JOIN problems p ON p.id = s.problem_id AND p.is_published = true
+            WHERE s.student_id = :student_id
+              AND s.is_correct IS NOT NULL
+            ORDER BY s.problem_id, s.submitted_at DESC
+        )
         SELECT
-            p.topic_id,
+            t.id                                            AS topic_id,
             t.name                                          AS topic_name,
             t.book_chapter,
             COUNT(DISTINCT p.id)                            AS problems_in_topic,
-            COUNT(DISTINCT s.problem_id)                    AS problems_attempted,
-            COUNT(DISTINCT CASE WHEN s.is_correct THEN s.problem_id END)  AS problems_passed,
+            COUNT(DISTINCT lpp.problem_id)                  AS problems_attempted,
+            COUNT(DISTINCT CASE WHEN lpp.last_correct THEN lpp.problem_id END) AS problems_passed,
             ROUND(
-                100.0 * COUNT(DISTINCT CASE WHEN s.is_correct THEN s.problem_id END)
-                      / NULLIF(COUNT(DISTINCT s.problem_id), 0)
+                100.0 * COUNT(DISTINCT CASE WHEN lpp.last_correct THEN lpp.problem_id END)
+                      / NULLIF(COUNT(DISTINCT lpp.problem_id), 0)
             , 2)                                            AS mastery_score,
             COALESCE(SUM(hr.hint_count), 0)                 AS total_hints_used,
-            MAX(s.submitted_at)                             AS last_activity_at
+            MAX(lpp.submitted_at)                           AS last_activity_at
         FROM topics t
         JOIN problems p ON p.topic_id = t.id AND p.is_published = true
-        LEFT JOIN submissions s
-            ON s.problem_id = p.id
-            AND s.student_id = :student_id
-            AND s.is_correct IS NOT NULL
+        LEFT JOIN latest_per_problem lpp ON lpp.problem_id = p.id
         LEFT JOIN (
             SELECT problem_id, COUNT(*) AS hint_count
             FROM hint_requests
             WHERE student_id = :student_id
             GROUP BY problem_id
         ) hr ON hr.problem_id = p.id
-        GROUP BY p.topic_id, t.name, t.book_chapter, t.display_order
+        GROUP BY t.id, t.name, t.book_chapter, t.display_order
         ORDER BY t.display_order
     """)
     rows = db.execute(sql, {"student_id": student_id}).mappings().all()
     return [dict(r) for r in rows]
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,9 +181,29 @@ def get_weekly_progress(db: Session, student_id: str, days: int = 30) -> list[di
 def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dict]:
     """
     Comprehensive per-topic stats: mastery, attempts, hints, time, badge level.
+
+    ONEMLI: 'passed' sayisi LATEST attempt per problem kullanir.
+    Eski formul: COUNT(DISTINCT CASE WHEN is_correct THEN problem_id) = once dogru
+    yapilmis problem hep passed sayilir.
+    Yeni formul: Her problem icin EN SON submission gecerli. Son denemesi yanlis
+    olan bir problem passed saymaz — recompute_mastery ile ayni mantik.
     """
     sql = text("""
-        WITH topic_stats AS (
+        WITH latest_submissions AS (
+            -- Her (student, class, problem) icin sadece EN SON submission
+            SELECT DISTINCT ON (s.problem_id)
+                s.problem_id,
+                s.student_id,
+                s.class_id,
+                s.is_correct   AS last_correct,
+                s.submitted_at
+            FROM submissions s
+            WHERE s.student_id = :student_id
+              AND s.class_id   = :class_id
+              AND s.is_correct IS NOT NULL
+            ORDER BY s.problem_id, s.submitted_at DESC
+        ),
+        topic_stats AS (
             SELECT
                 t.id           AS topic_id,
                 t.name         AS topic_name,
@@ -137,24 +211,19 @@ def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dic
                 t.display_order,
                 -- problems in topic
                 COUNT(DISTINCT p.id)                                               AS total_problems,
-                -- student's attempts
-                COUNT(DISTINCT s.problem_id)                                       AS attempted,
-                COUNT(DISTINCT CASE WHEN s.is_correct THEN s.problem_id END)       AS passed,
+                -- student's latest-attempt stats
+                COUNT(DISTINCT ls.problem_id)                                      AS attempted,
+                COUNT(DISTINCT CASE WHEN ls.last_correct THEN ls.problem_id END)   AS passed,
                 -- hints
                 COALESCE(SUM(hr.total_hints), 0)                                   AS hints_used,
-                -- time
-                COALESCE(SUM(s.time_spent_seconds), 0)                             AS time_spent_s,
-                -- score
-                COALESCE(SUM(CASE WHEN s.is_correct THEN p.points ELSE 0 END), 0) AS earned_points,
-                COALESCE(SUM(p.points), 0)                                         AS max_points,
+                -- earned / max points from latest attempts
+                COALESCE(SUM(CASE WHEN ls.last_correct THEN p.points ELSE 0 END), 0) AS earned_points,
+                COALESCE(SUM(CASE WHEN ls.problem_id IS NOT NULL THEN p.points ELSE 0 END), 0) AS max_points,
                 -- last activity
-                MAX(s.submitted_at)                                                AS last_activity_at
+                MAX(ls.submitted_at)                                               AS last_activity_at
             FROM topics t
             JOIN problems p ON p.topic_id = t.id AND p.is_published = true
-            LEFT JOIN submissions s
-                ON s.problem_id = p.id
-               AND s.student_id = :student_id
-               AND s.class_id = :class_id
+            LEFT JOIN latest_submissions ls ON ls.problem_id = p.id
             LEFT JOIN (
                 SELECT problem_id, COUNT(*) AS total_hints
                 FROM hint_requests
@@ -171,21 +240,20 @@ def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dic
             attempted,
             passed,
             hints_used,
-            time_spent_s,
             earned_points,
             max_points,
             last_activity_at,
-            -- mastery 0–100
+            -- mastery 0-100 (latest-attempt based)
             CASE
                 WHEN attempted = 0 THEN 0
                 ELSE ROUND(100.0 * passed / attempted, 1)
             END AS mastery_score,
-            -- completion 0–100
+            -- completion 0-100
             CASE
                 WHEN total_problems = 0 THEN 0
                 ELSE ROUND(100.0 * attempted / total_problems, 1)
             END AS completion_pct,
-            -- badge: gold/silver/bronze/locked
+            -- badge
             CASE
                 WHEN attempted = 0 THEN 'locked'
                 WHEN ROUND(100.0 * passed / NULLIF(attempted,0), 1) >= 80 THEN 'gold'
@@ -199,6 +267,7 @@ def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dic
     return [dict(r) for r in rows]
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. CLASS OVERVIEW  (instructor: all students ranked + class stats)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -206,6 +275,7 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
     """
     All students in a class ranked by average mastery score.
     Includes percentile rank as a window function.
+    weak_topic: her öğrencinin en düşük mastery'e sahip konu adı (subquery).
     """
     sql = text("""
         WITH student_scores AS (
@@ -214,10 +284,10 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
                 u.first_name,
                 u.last_name,
                 u.email,
-                COALESCE(AVG(stm.mastery_score), 0)    AS avg_mastery,
+                COALESCE(AVG(stm.mastery_score), 0)     AS avg_mastery,
                 COALESCE(SUM(stm.problems_attempted), 0) AS total_attempted,
-                COALESCE(SUM(stm.problems_passed), 0)   AS total_passed,
-                COALESCE(SUM(stm.total_hints_used), 0)  AS total_hints
+                COALESCE(SUM(stm.problems_passed), 0)    AS total_passed,
+                COALESCE(SUM(stm.total_hints_used), 0)   AS total_hints
             FROM users u
             JOIN enrollments e ON e.student_id = u.id
                AND e.class_id = :class_id AND e.status = 'active'
@@ -226,20 +296,31 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
             GROUP BY u.id, u.first_name, u.last_name, u.email
         )
         SELECT
-            student_id,
-            first_name,
-            last_name,
-            email,
-            ROUND(avg_mastery::numeric, 2)              AS avg_mastery,
-            total_attempted,
-            total_passed,
-            total_hints,
-            RANK()         OVER (ORDER BY avg_mastery DESC)  AS rank,
+            ss.student_id,
+            ss.first_name,
+            ss.last_name,
+            ss.email,
+            ROUND(ss.avg_mastery::numeric, 2)              AS avg_mastery,
+            ss.total_attempted,
+            ss.total_passed,
+            ss.total_hints,
+            RANK()         OVER (ORDER BY ss.avg_mastery DESC)  AS rank,
             ROUND(
-                (PERCENT_RANK() OVER (ORDER BY avg_mastery) * 100)::numeric
-            , 1)                                              AS percentile
-        FROM student_scores
-        ORDER BY avg_mastery DESC
+                (PERCENT_RANK() OVER (ORDER BY ss.avg_mastery) * 100)::numeric
+            , 1)                                              AS percentile,
+            -- weak_topic: öğrencinin en düşük mastery puanına sahip konusunun adı
+            (
+                SELECT t.name
+                FROM student_topic_mastery stm2
+                JOIN topics t ON t.id = stm2.topic_id
+                WHERE stm2.student_id = ss.student_id
+                  AND stm2.class_id   = :class_id
+                  AND stm2.problems_attempted > 0
+                ORDER BY stm2.mastery_score ASC NULLS LAST
+                LIMIT 1
+            ) AS weak_topic
+        FROM student_scores ss
+        ORDER BY ss.avg_mastery DESC
     """)
     rows = db.execute(sql, {"class_id": class_id}).mappings().all()
     return [dict(r) for r in rows]
@@ -295,20 +376,28 @@ def detect_knowledge_gaps(db: Session, class_id: str, min_attempts: int = 3) -> 
                 NULLIF(COUNT(s.id), 0)
             , 2)                                AS failure_rate_pct,
             COUNT(DISTINCT s.student_id)        AS unique_students,
-            ROUND(AVG(s.time_spent_seconds)::numeric / 60, 1) AS avg_time_min,
-            AVG(hr.hints_per_student)           AS avg_hints_per_student
+            COALESCE(hr.total_hints, 0)         AS total_hints,
+            COALESCE(
+                ROUND(hr.total_hints::numeric /
+                      NULLIF(hr.students_hinted, 0), 2),
+                0
+            )                                   AS avg_hints_per_student
         FROM problems p
         JOIN topics t ON t.id = p.topic_id
         JOIN submissions s ON s.problem_id = p.id
             AND s.class_id = :class_id
             AND s.is_correct IS NOT NULL
         LEFT JOIN (
-            SELECT problem_id, student_id, COUNT(*) AS hints_per_student
-            FROM hint_requests hr2
-            WHERE hr2.requested_at > NOW() - INTERVAL '90 days'
-            GROUP BY problem_id, student_id
-        ) hr ON hr.problem_id = p.id AND hr.student_id = s.student_id
-        GROUP BY p.id, p.title, p.type, p.difficulty, t.id, t.name
+            SELECT
+                problem_id,
+                COUNT(*)                    AS total_hints,
+                COUNT(DISTINCT student_id)  AS students_hinted
+            FROM hint_requests
+            WHERE requested_at > NOW() - INTERVAL '90 days'
+            GROUP BY problem_id
+        ) hr ON hr.problem_id = p.id
+        GROUP BY p.id, p.title, p.type, p.difficulty, t.id, t.name,
+                 hr.total_hints, hr.students_hinted
         HAVING COUNT(s.id) >= :min_attempts
            AND (
                COUNT(CASE WHEN NOT s.is_correct THEN 1 END) * 100.0 /
@@ -371,42 +460,76 @@ def get_hint_analytics(db: Session, class_id: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str) -> None:
     """
-    Efficiently recomputes and upserts StudentTopicMastery using a single SQL query.
-    Called after every submission.
+    Submission sonrasi StudentTopicMastery'i tek SQL ile hesaplayip upsert eder.
+
+    Mastery formulu (per-problem LATEST ATTEMPT, points-weighted):
+      Her problem icin EN SON submission alınır (submitted_at DESC).
+      Son deneme dogru → earned_points artar.
+      Son deneme yanlis → earned_points = 0 (onceden dogru olsa bile).
+      mastery = earned_points / max_points * 100 - hint_penalti
+
+    Bu davranis sebebi: kullanici son denemeyi yanlis yapinca mastery'nin
+    dusmesini istiyoruz — "once dogru, sonra yanlis" durumu yanlis sayilmali.
     """
     sql = text("""
         INSERT INTO student_topic_mastery
             (id, student_id, topic_id, class_id,
              mastery_score, problems_attempted, problems_passed, total_hints_used,
              last_activity_at, updated_at)
+
+        WITH latest_per_problem AS (
+            -- Her problem icin EN SON submission
+            SELECT DISTINCT ON (s.problem_id)
+                s.problem_id,
+                p.points,
+                s.is_correct AS last_correct
+            FROM submissions s
+            JOIN problems p ON p.id = s.problem_id
+            WHERE s.student_id = :student_id
+              AND s.class_id   = :class_id
+              AND p.topic_id   = :topic_id
+              AND s.is_correct IS NOT NULL
+            ORDER BY s.problem_id, s.submitted_at DESC
+        )
         SELECT
             gen_random_uuid(),
             :student_id,
             :topic_id,
             :class_id,
-            -- mastery = (problems_passed / problems_attempted) * 100
-            COALESCE(
-                ROUND(100.0 * COUNT(DISTINCT CASE WHEN s.is_correct THEN s.problem_id END)
-                              / NULLIF(COUNT(DISTINCT s.problem_id), 0)
-                      , 2)
-            , 0)                                                                    AS mastery_score,
-            COUNT(DISTINCT s.problem_id)                                            AS problems_attempted,
-            COUNT(DISTINCT CASE WHEN s.is_correct THEN s.problem_id END)            AS problems_passed,
+            -- Points-weighted mastery: son deneme dogru olanlar / tum denenenlerin toplam puani
+            GREATEST(
+                0,
+                COALESCE(
+                    ROUND(
+                        100.0
+                        * SUM(CASE WHEN last_correct THEN points ELSE 0 END)::numeric
+                        / NULLIF(SUM(points), 0)
+                    , 2)
+                , 0)
+                - LEAST(
+                    COALESCE((
+                        SELECT COUNT(*) FROM hint_requests
+                        WHERE student_id = :student_id
+                          AND problem_id IN (
+                              SELECT id FROM problems WHERE topic_id = :topic_id
+                          )
+                    ), 0) * 5,
+                    20
+                )
+            )                                                       AS mastery_score,
+            COUNT(*)                                                AS problems_attempted,
+            COUNT(*) FILTER (WHERE last_correct = true)            AS problems_passed,
             COALESCE((
                 SELECT COUNT(*) FROM hint_requests
                 WHERE student_id = :student_id
                   AND problem_id IN (
                       SELECT id FROM problems WHERE topic_id = :topic_id
                   )
-            ), 0)                                                                    AS total_hints_used,
-            MAX(s.submitted_at)                                                     AS last_activity_at,
-            NOW()                                                                   AS updated_at
-        FROM submissions s
-        JOIN problems p ON p.id = s.problem_id
-        WHERE s.student_id = :student_id
-          AND s.class_id   = :class_id
-          AND p.topic_id   = :topic_id
-          AND s.is_correct IS NOT NULL
+            ), 0)                                                   AS total_hints_used,
+            NOW()                                                   AS last_activity_at,
+            NOW()                                                   AS updated_at
+        FROM latest_per_problem
+
         ON CONFLICT (student_id, topic_id, class_id)
         DO UPDATE SET
             mastery_score      = EXCLUDED.mastery_score,
@@ -421,3 +544,7 @@ def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str
         "class_id": class_id,
         "topic_id": topic_id,
     })
+
+
+
+

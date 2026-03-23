@@ -1,5 +1,22 @@
 """
-Pydantic schemas — request/response validation
+schemas.py — Pydantic Veri Modelleri (Request/Response Doğrulama)
+
+Bu dosya backend API'sinin giriş (request) ve çıkış (response) verilerini
+tanımlar. FastAPI her endpoint'e gelen veriyi bu şemalar aracılığıyla
+doğrular ve dönüştürür.
+
+GENEL AKIŞ:
+  Frontend → HTTP isteği → Router → Schema doğrulama → İş mantığı → Schema response
+
+SCHEMA GRUPLARI:
+  - Auth:        Login ve JWT token için girdi/çıktı
+  - User:        Kullanıcı bilgisi (frontend'e dönülen açık veri)
+  - Topic:       Konu listesi için
+  - Lesson:      Ders içeriği (markdown + materyaller)
+  - Problem:     Soru detayı, seçenekler, ipuçları
+  - Submission:  Öğrencinin cevabı kaydederken gönderdiği/aldığı veri
+  - Event:       Öğrenme olaylarını kaydetmek için (sayfa ziyareti, video izleme vb.)
+  - AI Tutor:    /tutor/chat endpoint'i için mesaj formatı
 """
 from __future__ import annotations
 from pydantic import BaseModel
@@ -118,19 +135,38 @@ class ProblemOut(BaseModel):
 class ProblemListOut(BaseModel):
     id: str
     title: str
+    description: str          # Soru metni — QuestionPage description icin
     type: str
     difficulty: str
     points: int
     topic_id: str
+    starter_code: Optional[str] = None   # Kod snippet icin baslangic kodu
+    grading_rubric: Optional[str] = None # Rubric (grading icin)
+    correct_answer: Optional[str] = None
+    # explanation: grading_rubric'ten otomatik doldurulur — QuestionPage icin gosterilecek
+    explanation: Optional[str] = None
+    # MCQ secenekleri — problem_options tablosundan gelir
+    options: list[OptionOut] = []
 
     class Config:
         from_attributes = True
+
+    from pydantic import model_validator
+
+    @model_validator(mode="after")
+    def fill_explanation(self):
+        """explanation bossa grading_rubric'ten doldur"""
+        if not self.explanation and self.grading_rubric:
+            self.explanation = self.grading_rubric
+        return self
+
 
 
 # ── Submission ───────────────────────────────────────────────────────────────
 class SubmissionCreate(BaseModel):
     problem_id: str
-    class_id: str
+    # class_id optional — backend enrollment'dan otomatik alir
+    class_id: Optional[str] = None
     submitted_code: Optional[str] = None
     submitted_answer: Optional[str] = None
     selected_option_id: Optional[str] = None
@@ -164,49 +200,6 @@ class EventCreate(BaseModel):
     duration_seconds: Optional[int] = None
 
 
-# ── Analytics ────────────────────────────────────────────────────────────────
-class MasteryOut(BaseModel):
-    topic_id: str
-    topic_name: str
-    mastery_score: float
-    problems_attempted: int
-    problems_passed: int
-    total_hints_used: int
-
-class StudentDashboardOut(BaseModel):
-    user: UserOut
-    total_problems_attempted: int
-    total_problems_passed: int
-    overall_score: float
-    percentile: float
-    weak_topics: list[MasteryOut]
-    recent_mastery: list[MasteryOut]
-
-class KnowledgeGapOut(BaseModel):
-    topic_id: str
-    topic_name: str
-    problem_id: Optional[str]
-    problem_title: Optional[str]
-    failure_rate: float
-    student_count: int
-    failure_count: int
-
-class StudentRankOut(BaseModel):
-    student_id: str
-    first_name: str
-    last_name: str
-    total_score: float
-    percentile: float
-    problems_passed: int
-
-class InstructorDashboardOut(BaseModel):
-    class_id: str
-    class_name: str
-    total_students: int
-    average_score: float
-    median_score: float
-    knowledge_gaps: list[KnowledgeGapOut]
-    student_ranking: list[StudentRankOut]
 
 # ── AI Tutor ──────────────────────────────────────────────────────────────
 class TutorMessage(BaseModel):

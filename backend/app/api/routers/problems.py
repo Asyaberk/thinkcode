@@ -27,7 +27,17 @@ def list_problems(
         q = q.filter(Problem.difficulty == difficulty)
     if type:
         q = q.filter(Problem.type == type)
+    # MCQ önce (öğrencinin Learning Path → Start Practice akışı için)
+    # CASE WHEN ile öncelik: multiple_choice=1, coding=2, open_response=3
+    from sqlalchemy import case
+    type_order = case(
+        (Problem.type == 'multiple_choice', 1),
+        (Problem.type == 'coding', 2),
+        else_=3
+    )
+    q = q.order_by(type_order)
     return q.all()
+
 
 
 @router.get("/{problem_id}", response_model=ProblemOut)

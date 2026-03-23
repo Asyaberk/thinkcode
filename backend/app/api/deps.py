@@ -1,5 +1,26 @@
 """
-FastAPI dependency injection: DB session + current user guard
+deps.py — FastAPI Bağımlılık Enjeksiyonu (Dependency Injection)
+
+Her endpoint'te tekrar tekrar yazılması gereken ortak işlevler burada tanımlanır
+ve Depends() mekanizmasıyla otomatik olarak enjekte edilir.
+
+FONKSİYONLAR:
+  get_db()
+    → Her HTTP isteği için yeni bir PostgreSQL oturumu açar.
+      İstek bitince otomatik olarak kapatır (finally bloğu).
+      Tüm routerlarda: db: Session = Depends(get_db)
+
+  get_current_user()
+    → HTTP Authorization başlığındaki "Bearer <token>" JWT'yi çözer.
+      Token geçersizse 401 Unauthorized fırlatır.
+      Kullanıcı aktif değilse 401 fırlatır.
+      Başarılıysa User model nesnesi döner.
+      Tüm korumalı routerlarda: current_user: User = Depends(get_current_user)
+
+  require_instructor()
+    → Yukarıdaki get_current_user'ı çağırır, ek olarak rol kontrolü yapar.
+      Instructor veya admin değilse 403 Forbidden fırlatır.
+      Sadece instructor endpointlerinde kullanılır.
 """
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

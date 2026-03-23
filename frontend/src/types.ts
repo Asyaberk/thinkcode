@@ -1,4 +1,29 @@
 // ── Auth ──────────────────────────────────────────────────────────────────────
+/**
+ * types.ts — Tüm TypeScript Tipleri ve Interface'ler
+ *
+ * Bu dosya frontend genelinde kullanılan tüm tip tanımlarını içerir.
+ * Import şekli: import type { SomeType } from '../types'
+ *
+ * TİP GRUPLARı:
+ *   UserRole        → 'Student' | 'Instructor' — rol bazlı UI gösterimi için
+ *   AuthUser        → Giriş yapan kullanıcının temel bilgileri (id, email, isim, rol)
+ *   Section         → Sidebar'daki her konu bloğu (topic + isCompleted + mastery)
+ *   Topic           → Backend'den gelen konu verisi (book_chapter, parent_topic_id vb.)
+ *   Lesson          → LessonContent bileşenine verilen ders nesnesi (markdown + resources)
+ *   ApiLesson       → Backend'den gelen ham ders verisi (useLesson.ts bunu Lesson'a dönüştürür)
+ *   Question        → QuestionPage'e geçilen soru nesnesi (type, options, hints vb.)
+ *   ApiProblem      → Backend /problems endpoint'inden gelen ham soru verisi
+ *   SubmissionCreate→ Cevap gönderirken backend'e gönderilen istek gövdesi
+ *   Submission      → Backend'den dönen cevap sonucu (score, feedback, is_correct vb.)
+ *   MasteryEntry    → Bir konunun ustalık verisi (mastery_score, problems_attempted vb.)
+ *   StudentDashboard→ Dashboard sayfasının ana veri yapısı (kullanıcı + tüm mastery)
+ *   TutorMessage    → AI chat mesajı { role: 'user'|'assistant', content: string }
+ *   ChatMessage     → Frontend chat bileşeninde gösterilen mesaj (id + timestamp ekli)
+ *   UserProgress    → useAnalytics hook'u için haftalık ilerleme (kullanılmıyor)
+ */
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
 export type UserRole = 'Student' | 'Instructor';
 
 export interface AuthUser {
@@ -14,7 +39,9 @@ export type Section = {
   id: string;
   title: string;
   isCompleted: boolean;
+  parentId: string | null;   // null = ana başlık (parent), dolu = alt konu
 };
+
 
 export interface Topic {
   id: string;
@@ -97,6 +124,8 @@ export interface ApiProblem {
 
 export type Question = {
   id: string;
+  /** Backend UUID — submitAnswer() API cagrisi icin gerekli */
+  problemId?: string;
   lessonId: string;
   title: string;
   description: string;
@@ -106,8 +135,11 @@ export type Question = {
   starterCode?: string;
   solutionTemplate?: string;
   explanation: string;
+  /** Dogru cevap puani — submission output mesajinda gosterilir */
+  points?: number;
   relatedResources?: Resource[];
 };
+
 
 export type Problem = {
   id: string;
