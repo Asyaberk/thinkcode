@@ -1,4 +1,6 @@
 """
+MCQ için değil açık uçlu için 
+
 grading.py — AI Tabanlı Cevap Notlandırma Modülü
 
 submissions.py router tarafından kodlama ve açık uçlu sorularda çağrılır.

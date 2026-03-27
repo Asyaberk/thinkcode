@@ -12,6 +12,7 @@ from app.schemas import ProblemOut, ProblemListOut, HintOut
 router = APIRouter(prefix="/problems", tags=["problems"])
 
 
+#Soruları filtrele: konu, zorluk, tip
 @router.get("", response_model=list[ProblemListOut])
 def list_problems(
     topic_id: Optional[str] = Query(None),
@@ -52,6 +53,7 @@ def get_problem(
     return problem
 
 
+#DB'den basit ipucu çek (1, 2 veya 3. seviye)
 @router.get("/{problem_id}/hint/{level}", response_model=HintOut)
 def get_hint(
     problem_id: str,

@@ -1,3 +1,4 @@
+#Öğretmene özel. Sınıfın hangi konularda zorlandığını analiz eder.
 import os
 from typing import TypedDict, List
 from langchain_openai import ChatOpenAI

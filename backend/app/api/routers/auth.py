@@ -1,5 +1,7 @@
 """
 Router: /api/v1/auth
+
+Email + şifre doğrular, JWT token döner
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session

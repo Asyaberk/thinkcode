@@ -36,6 +36,7 @@ from app.analytics.queries import recompute_mastery
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 
 
+#Cevap gönder, not al
 @router.post("", response_model=SubmissionOut)
 def submit(
     body: SubmissionCreate,
@@ -146,6 +147,7 @@ def submit(
     return result
 
 
+#Çözülmüş soruların ID'leri (sidebar yeşil ✓ için)
 @router.get("/me/solved-problem-ids")
 def get_solved_problem_ids(
     db: Session = Depends(get_db),

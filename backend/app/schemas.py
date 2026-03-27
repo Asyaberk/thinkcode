@@ -1,4 +1,11 @@
 """
+models.py
+ → veritabanı tablosu (SQLAlchemy)
+
+schemas.py
+ → API'nin giriş/çıkış formatı (Pydantic)
+
+
 schemas.py — Pydantic Veri Modelleri (Request/Response Doğrulama)
 
 Bu dosya backend API'sinin giriş (request) ve çıkış (response) verilerini

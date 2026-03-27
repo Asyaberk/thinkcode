@@ -1,3 +1,5 @@
+#ders içeriğini özetleme ve markdowna çevirme
+#URL → Web'den metin çek → GPT'ye ver → Özet + Markdown ders üret
 import os
 from typing import TypedDict
 import requests
