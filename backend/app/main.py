@@ -5,7 +5,7 @@ Run: uvicorn app.main:app --reload --port 8000
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, topics, problems, submissions, analytics, instructor, tutor, lessons
+from app.api.routers import auth, topics, problems, submissions, analytics, instructor, tutor, lessons, resources
 
 app = FastAPI(
     title="ThinkCode Learning Analytics API",
@@ -40,6 +40,7 @@ app.include_router(analytics.router,   prefix=PREFIX)
 app.include_router(instructor.router,  prefix=PREFIX)
 app.include_router(tutor.router,       prefix=PREFIX)
 app.include_router(lessons.router,     prefix=PREFIX)
+app.include_router(resources.router,   prefix=PREFIX)  # Content Builder: PDF upload + AI extraction
 
 
 @app.get("/health")

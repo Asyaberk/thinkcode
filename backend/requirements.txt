@@ -25,3 +25,8 @@ langfuse==4.0.0
 # ── Utilities ────────────────────────────────────────────────────────────────
 beautifulsoup4==4.14.3
 requests==2.32.3
+
+# ── PDF Parsing (Content Builder — Chandra OCR pipeline) ─────────────────────
+# pdfplumber: GPU gerektirmez, tablo destegi var, Chandra yoksa fallback olarak kullanilir
+# Chandra icin: pip install chandra-ocr  (ayrica GPU/vLLM gerekir)
+pdfplumber==0.11.4

@@ -36,6 +36,13 @@ ProblemTypeEnum      = Enum("coding", "multiple_choice", "open_response", name="
 DifficultyEnum       = Enum("easy", "medium", "hard",               name="difficulty_level")
 SubmissionStatusEnum = Enum("pending", "passed", "failed", "grading", name="submission_status")
 MaterialTypeEnum     = Enum("pdf", "video", "link", "visualization", name="material_type")
+
+# ── Yeni: Hoca tarafından yüklenen kaynakların işlenme durumu ──────────────
+# uploaded  : Dosya yüklendi, henüz işlenmedi
+# processing: Chandra / pdfplumber çalışıyor
+# done      : AI extraction tamamlandı, DB'ye yazıldı
+# failed    : Herhangi bir adımda hata oluştu
+ResourceStatusEnum   = Enum("uploaded", "processing", "done", "failed", name="resource_status")
 EventTypeEnum        = Enum(
     "lesson_opened", "material_viewed", "problem_started",
     "problem_submitted", "hint_requested", "video_played",
@@ -396,3 +403,112 @@ Index("idx_events_class_type", LearningEvent.class_id, LearningEvent.event_type)
 Index("idx_problems_topic",            Problem.topic_id)
 Index("idx_problems_type_difficulty",  Problem.type, Problem.difficulty)
 Index("idx_problems_published",        Problem.is_published)
+
+
+# ─────────────────────────────────────────────────────────────
+# CONTENT BUILDER — Kaynak Yönetimi
+#
+# Bu iki tablo, Kamer Hoca'nın istediği "instructor kaynak yükleme"
+# akışını destekler:
+#
+#   1. Hoca Content Builder'dan PDF / metin yükler
+#      → course_resources tablosuna kaydedilir (status=uploaded)
+#
+#   2. "Process Resources" butonuna basıldığında:
+#      a) pdfplumber (veya Chandra CLI) PDF'i Markdown'a çevirir
+#         → raw_markdown alanına yazılır (status=processing)
+#      b) GPT-4o-mini Markdown'dan Topics/Lessons/Questions üretir
+#         → Sonuç topics, lessons, problems tablolarına yazılır
+#         → ai_extracted_content tablosuna özet kaydedilir (status=done)
+#
+#   3. Hoca Content Builder sayfasında üretilen içerikleri görür,
+#      düzenler ve onaylar.
+# ─────────────────────────────────────────────────────────────
+
+class CourseResource(Base):
+    """
+    Hocanın yüklediği ders materyali (PDF, metin dosyası vb.).
+
+    Chandra OCR pipeline:
+      1. Dosya yüklenir → status = 'uploaded'
+      2. pdfplumber / Chandra metni çıkarır → raw_markdown doldurulur
+      3. GPT extraction tamamlanınca → status = 'done'
+    """
+    __tablename__ = "course_resources"
+
+    id              = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+
+    # Yükleyen hoca — hangi instructora ait olduğunu bilmemiz gerekiyor
+    instructor_id   = Column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Orijinal dosya adı (kullanıcıya gösterilir)
+    filename        = Column(String(500), nullable=False)
+
+    # Sunucuda saklanan fiziksel yol veya S3/storage URL'si
+    file_path       = Column(String(1000), nullable=False)
+
+    # Dosya türü: "pdf" | "text" | "markdown"
+    # video/audio şimdilik Mert'in parsing sistemiyle gelecek
+    file_type       = Column(String(50), nullable=False, default="pdf")
+
+    # Chandra/pdfplumber'ın çıkardığı ham Markdown metni
+    # NULL ise henüz işlenmemiş demektir
+    raw_markdown    = Column(Text, nullable=True)
+
+    # İşlenme durumu: uploaded → processing → done | failed
+    status          = Column(ResourceStatusEnum, nullable=False, default="uploaded")
+
+    # Hata durumunda mesaj tutulur (debug için)
+    error_message   = Column(Text, nullable=True)
+
+    created_at      = Column(DateTime(timezone=True), default=_now)
+    updated_at      = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    # Bir kaynaktan birden fazla extraction yapılabilir (retry vs.)
+    extractions     = relationship("AiExtractedContent", back_populates="resource",
+                                   cascade="all, delete-orphan")
+
+
+class AiExtractedContent(Base):
+    """
+    GPT-4o-mini'nin CourseResource'dan çıkardığı içeriklerin özeti.
+
+    Asıl içerik topics/lessons/problems tablolarına yazılır.
+    Bu tablo sadece "hangi kaynaktan ne üretildi" takibini sağlar.
+    Böylece hoca aynı PDF'i tekrar işlerse ne değiştiğini görebilir.
+    """
+    __tablename__ = "ai_extracted_content"
+
+    id                = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+
+    # Hangi kaynak dosyasından üretildi
+    resource_id       = Column(
+        UUID(as_uuid=False),
+        ForeignKey("course_resources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # GPT'nin döndürdüğü ham JSON — tüm çıkarılan içerik burada
+    # Format: {"topics": [...], "lessons": [...], "questions": [...], "misconceptions": [...]}
+    extracted_json    = Column(JSONB, nullable=False, default=dict)
+
+    # Kaç adet topic/lesson/problem DB'ye yazıldı (hızlı özet için)
+    topics_created    = Column(Integer, default=0)
+    lessons_created   = Column(Integer, default=0)
+    problems_created  = Column(Integer, default=0)
+
+    # Kullanılan GPT modeli (gelecekte farklı modeller denenebilir)
+    model_used        = Column(String(100), default="gpt-4o-mini")
+
+    created_at        = Column(DateTime(timezone=True), default=_now)
+
+    resource          = relationship("CourseResource", back_populates="extractions")
+
+
+# Hızlı sorgu indexleri (course_resources tablosu için)
+Index("idx_resources_instructor", CourseResource.instructor_id)
+Index("idx_resources_status",     CourseResource.status)
