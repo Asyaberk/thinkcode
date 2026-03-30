@@ -109,7 +109,6 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
         onSectionSelect={onLearningClick}
         onDashboardClick={onDashboardClick}
         onAnalyticsClick={onAnalyticsClick}
-        onPlaygroundClick={onPlaygroundClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
         onLogout={onLogout}
         userRole={userRole}

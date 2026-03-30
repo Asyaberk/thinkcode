@@ -151,7 +151,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         onDashboardClick={() => {}}
         onProblemsClick={onProblemsClick}
         onAnalyticsClick={onAnalyticsClick}
-        onPlaygroundClick={onPlaygroundClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
         onLogout={onLogout}
         userRole={userRole}
