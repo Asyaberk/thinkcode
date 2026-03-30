@@ -110,7 +110,7 @@ def chat_with_tutor(
             student_id=current_user.id,
             problem_id=problem.id,
             messages=result["chat_history"],
-            model_used="gpt-4o-mini",
+            model_used="gpt-4.1-nano",
             langfuse_trace_id=result.get("trace_id")
         )
         db.add(db_session)
@@ -181,7 +181,7 @@ def playground_chat(
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=messages,
             max_tokens=500,
             temperature=0.7,

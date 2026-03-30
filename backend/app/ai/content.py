@@ -45,7 +45,7 @@ def fetch_content(state: ContentState) -> ContentState:
 def summarize_content(state: ContentState) -> ContentState:
     """Uses LLM to summarize and format the raw text into lesson markdown."""
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-4.1-nano",
         temperature=0.1,
         api_key=settings.OPENAI_API_KEY
     )

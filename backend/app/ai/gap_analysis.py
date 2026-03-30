@@ -18,7 +18,7 @@ class GapState(TypedDict):
 def generate_gap_analysis(state: GapState) -> GapState:
     """Uses LLM to analyze the provided knowledge gaps and suggest remedial actions."""
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-nano",
         temperature=0.2,
         api_key=settings.OPENAI_API_KEY
     )

@@ -502,7 +502,7 @@ class AiExtractedContent(Base):
     problems_created  = Column(Integer, default=0)
 
     # Kullanılan GPT modeli (gelecekte farklı modeller denenebilir)
-    model_used        = Column(String(100), default="gpt-4o-mini")
+    model_used        = Column(String(100), default="gpt-4.1-nano")
 
     created_at        = Column(DateTime(timezone=True), default=_now)
 

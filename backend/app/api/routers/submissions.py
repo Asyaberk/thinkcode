@@ -116,7 +116,7 @@ def submit(
             feedback=evaluation["feedback"],
             reasoning=evaluation["reasoning"],
             rubric_score=evaluation["score"],
-            model_used="gpt-4o-mini",
+            model_used="gpt-4.1-nano",
             langfuse_trace_id=evaluation.get("trace_id")
         )
         submission.grading_result = grading_result

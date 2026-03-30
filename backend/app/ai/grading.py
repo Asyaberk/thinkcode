@@ -57,7 +57,7 @@ class EvaluationResult(BaseModel):
 def evaluate_answer(state: GradingState) -> GradingState:
     """Uses LLM to evaluate the student answer."""
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-4.1-nano",
         temperature=0.0,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(EvaluationResult)

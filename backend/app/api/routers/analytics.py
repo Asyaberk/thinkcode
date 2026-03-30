@@ -347,7 +347,7 @@ def my_ai_insight(
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
             temperature=0.7,

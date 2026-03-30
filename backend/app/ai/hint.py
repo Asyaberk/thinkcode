@@ -59,7 +59,7 @@ def decide_and_generate_hint(state: HintState) -> HintState:
     
     # 2. LLM Synthesis
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-4.1-nano",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     )

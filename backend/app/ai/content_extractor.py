@@ -37,8 +37,8 @@ from app.db.models import (
 
 logger = logging.getLogger(__name__)
 
-# Kullanilacak GPT modeli — gpt-4o-mini maliyet/kalite dengesi icin ideal
-EXTRACTION_MODEL = "gpt-4o-mini"
+# Kullanilacak GPT modeli — gpt-4.1-nano (hocanin istedigi model)
+EXTRACTION_MODEL = "gpt-4.1-nano"
 
 # PDF metninin GPT'ye gonderilecek maksimum karakter sayisi
 # GPT-4o-mini 128k token destekler; ~500k karakter guvenli sinir

@@ -44,7 +44,7 @@ def get_llm(temperature: float = 0.3):
     """GPT-4o-mini ile LLM olustur"""
     from app.core.config import settings
     return ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-4.1-nano",
         temperature=temperature,
         api_key=settings.OPENAI_API_KEY
     )
