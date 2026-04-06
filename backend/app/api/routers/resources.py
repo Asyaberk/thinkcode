@@ -250,13 +250,52 @@ def list_resources(
     return [
         {
             "resource_id": r.id,
-            "filename": r.filename,
-            "file_type": r.file_type,
-            "status": r.status,
-            "created_at": r.created_at,
+            "filename":    r.filename,
+            "file_type":   r.file_type,
+            "week_name":   r.week_name,
+            "status":      r.status,
+            "error_message": r.error_message,
+            "created_at":  r.created_at,
         }
         for r in resources
     ]
+
+
+@router.get("/{resource_id}/content")
+def get_resource_content(
+    resource_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    İşlenmiş kaynağın çıkarılan içeriğini döndürür.
+
+    Content Builder sayfasında Topics/Lessons/Questions sekmelerini
+    gerçek AI çıktısıyla doldurmak için kullanılır.
+
+    Döndürür: GPT'nin ürettiği ham JSON
+      { course_title, topics: [{name, description, lessons, questions}], misconceptions }
+    """
+    resource = db.query(CourseResource).filter(
+        CourseResource.id == resource_id,
+        CourseResource.instructor_id == current_user.id,
+    ).first()
+
+    if not resource:
+        raise HTTPException(status_code=404, detail="Kaynak bulunamadı.")
+
+    extraction = (
+        db.query(AiExtractedContent)
+        .filter(AiExtractedContent.resource_id == resource_id)
+        .order_by(AiExtractedContent.created_at.desc())
+        .first()
+    )
+
+    if not extraction:
+        return {"course_title": "", "topics": [], "misconceptions": []}
+
+    return extraction.extracted_json
+
 
 
 # ─── Arka plan gorevi ────────────────────────────────────────────────────────
