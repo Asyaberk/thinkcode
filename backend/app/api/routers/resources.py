@@ -1,16 +1,17 @@
 """
 Router: /api/v1/resources
 
-Content Builder — Kaynak (PDF/metin) yukleme ve AI extraction endpoint'leri.
+Content Builder — Kaynak yükleme ve AI extraction endpoint'leri.
+Desteklenen dosya türleri: PDF, görüntü (.png/.jpg), kod (.cpp/.h/.py), metin (.txt/.md)
 
-Kamer Hoca'nin istedigi akis:
-  POST /resources/upload          → PDF yukle, course_resources'a kaydet
-  POST /resources/{id}/process    → Chandra/pdfplumber + GPT ile icerigi cikart
-  GET  /resources/{id}/result     → Extraction sonucunu goster
-  GET  /resources/                → Bu instructora ait tum kaynaklari listele
+Kamer Hoca'nın istediği akış:
+  POST /resources/upload          → Dosya yükle, course_resources'a kaydet
+  POST /resources/{id}/process    → pdfplumber/GLM-OCR + GPT ile içeriği çikart
+  GET  /resources/{id}/result     → Extraction sonucunu göster
+  GET  /resources/                → Bu instructora ait tüm kaynakları listele
 
-NOT: Tum endpoint'ler sadece instructor rolune aciktir.
-     Ogrenciler bu API'yi kullanamaz.
+NOT: Tüm endpoint'ler sadece instructor rolüne açıktır.
+     Öğrenciler bu API'yi kullanamaz.
 """
 
 import os
@@ -37,8 +38,21 @@ router = APIRouter(prefix="/resources", tags=["resources"])
 UPLOAD_DIR = Path("uploads/resources")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Izin verilen dosya turleri ve maks boyut (10 MB)
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
+# Desteklenen dosya türleri
+# PDF: pdfplumber (metin) veya GLM-OCR (görüntü) ile işlenir
+# Görüntü: GLM-OCR ile okunur (el yazısı, taranmış belge dahil)
+# Kod/metin: direkt okunur, GPT'ye gönderilir
+ALLOWED_EXTENSIONS = {
+    # Belgeler
+    ".pdf",
+    # Görüntüler (GLM-OCR ile okunur)
+    ".png", ".jpg", ".jpeg",
+    # Kod dosyaları (direkt metin olarak okunur)
+    ".cpp", ".h", ".c", ".cc",
+    ".py", ".js", ".ts", ".java",
+    # Metin
+    ".txt", ".md",
+}
 MAX_FILE_SIZE_MB = 10
 
 
@@ -49,13 +63,13 @@ async def upload_resource(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Hoca bir PDF veya metin dosyasi yukler.
+    Hoca bir dosya yükler (PDF, görüntü, kod veya metin).
 
     - Dosya UPLOAD_DIR'e kaydedilir
-    - course_resources tablosuna status='uploaded' ile kayit olusturulur
-    - Henuz AI extraction yapilmaz (process endpoint'i ayri)
+    - course_resources tablosuna status='uploaded' ile kayıt oluşturulur
+    - Henüz AI extraction yapılmaz (process endpoint'i ayrı)
 
-    Dondurur: { resource_id, filename, status }
+    Döndürür: { resource_id, filename, status }
     """
     # Sadece instructor yukleyebilir
     if current_user.role not in ("instructor", "admin"):
@@ -261,8 +275,8 @@ def _process_resource_task(resource_id: str, file_path: str):
             logger.error(f"Arka plan gorevi: kaynak bulunamadi: {resource_id}")
             return
 
-        # ADIM 1: PDF → Markdown
-        logger.info(f"[{resource_id}] PDF parse basliyor: {file_path}")
+        # ADIM 1: Dosyadan metin çıkar (PDF, görüntü, kod — türü otomatik algılanır)
+        logger.info(f"[{resource_id}] Dosya işleniyor: {file_path}")
         with open(file_path, "rb") as f:
             file_bytes = f.read()
 
