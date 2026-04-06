@@ -1,0 +1,64 @@
+--- SAYFA 1 ---
+
+CS 204
+Advanced Programming
+(Week 1: Introduction)
+
+Kamer Kaya
+Faculty of Engineering and Natural Sciences
+Sabancı University
+kaya@sabanciuniv.edu
+
+--- SAYFA 2 ---
+
+Outline
+
+– Course info
+– Good programming practice(s) – style, commenting
+– Preprocessor, compiler, linker...
+– Debugging
+  • using preprocessor directives
+  • assert statement
+
+--- SAYFA 3 ---
+
+CS204 in a Nutshell
+
+• Prerequisite (only for SU students): CS201
+• Coverage (Tentative)
+  – Introduction to data structures
+    • Pointers and dynamic memory allocation
+    • Linked lists, stacks, and queues
+  – Advanced structured and object-oriented programming
+    • Templates, templated classes and functions
+    • Data representation, bitwise operations
+    • Advanced issues on classes and object-oriented programming
+    • Inheritance, polymorphism and advanced object-oriented design
+  – Writing better, more efficient programs
+    • Preprocessing and compiler directives
+    • Reusable software (using/creating libraries)
+    • Exception handling
+  – (Concurrent) programming with threads
+  – Visual programming and graphical user interface with QT
+
+--- SAYFA 4 ---
+
+CS204 in a Nutshell
+
+• Text Book
+  – Main text is "Ivor Horton's Beginning Visual C++ 201X", by Ivor Horton, ISBN: 978-1-118-36808-4.
+  – You are responsible material covered in class too.
+  – No rush to buy the book
+
+• Grading
+  – Tentative - Midterm1: 25%; Midterm2: 30%; Final: 45%
+  – There will be 5-6 homeworks; the HWs will not be graded
+
+--- SAYFA 5 ---
+
+Web
+
+– The SUCourse web page contains the necessary UPDATED information and syllabus. Please follow the announcements…
+– Lecture notes will be posted weekly (please try to go over the slides once before the course)
+– We will use SUCourse to submit/collect homeworks and many other things such as discussions and announcements.
+– We will use SUCourse to answer your questions.
