@@ -20,8 +20,9 @@ import shutil
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_user
@@ -59,6 +60,7 @@ MAX_FILE_SIZE_MB = 10
 @router.post("/upload")
 async def upload_resource(
     file: UploadFile = File(...),
+    week_name: Optional[str] = Form(None),  # ör: "Week 1" — opsiyonel
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -108,7 +110,8 @@ async def upload_resource(
         instructor_id=current_user.id,
         filename=file.filename or safe_filename,
         file_path=str(file_path),
-        file_type=suffix.lstrip("."),  # ".pdf" → "pdf"
+        file_type=suffix.lstrip("."),
+        week_name=week_name,          # Week 1, Week 2 vs.
         status="uploaded",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -171,6 +174,7 @@ def process_resource(
         _process_resource_task,
         resource_id=resource_id,
         file_path=resource.file_path,
+        week_name=resource.week_name,  # Week parent topic için
     )
 
     return {
@@ -257,7 +261,7 @@ def list_resources(
 
 # ─── Arka plan gorevi ────────────────────────────────────────────────────────
 
-def _process_resource_task(resource_id: str, file_path: str):
+def _process_resource_task(resource_id: str, file_path: str, week_name: Optional[str] = None):
     """
     Arka planda calistirilan islem gorevi.
 
@@ -295,6 +299,7 @@ def _process_resource_task(resource_id: str, file_path: str):
             resource_id=resource_id,
             db=db,
             openai_client=openai_client,
+            week_name=week_name,     # "Week 1" → parent topic oluşturulacak
         )
 
         # Basarili: status = done

@@ -37,11 +37,10 @@ from app.db.models import (
 
 logger = logging.getLogger(__name__)
 
-# Kullanilacak GPT modeli — gpt-4.1-nano (hocanin istedigi model)
+# Kullanilacak GPT modeli
 EXTRACTION_MODEL = "gpt-4.1-nano"
 
 # PDF metninin GPT'ye gonderilecek maksimum karakter sayisi
-# GPT-4o-mini 128k token destekler; ~500k karakter guvenli sinir
 MAX_TEXT_CHARS = 120_000
 
 
@@ -50,6 +49,7 @@ def extract_content_from_markdown(
     resource_id: str,
     db: Session,
     openai_client: Optional[OpenAI] = None,
+    week_name: Optional[str] = None,  # ör: "Week 1" — parent topic oluşturur
 ) -> dict:
     """
     Markdown metninden AI ile kurs icerigi cikarir ve DB'ye kaydeder.
@@ -85,8 +85,8 @@ def extract_content_from_markdown(
     # GPT'ye gonderilecek prompt
     extracted_json = _call_gpt_extraction(markdown_text, openai_client)
 
-    # DB'ye kaydet
-    counts = _save_to_database(extracted_json, db)
+    # DB'ye kaydet — week_name verilmisse parent topic altına
+    counts = _save_to_database(extracted_json, db, week_name=week_name)
 
     # ai_extracted_content tablosuna ozet kaydet
     extraction_record = AiExtractedContent(
@@ -153,73 +153,83 @@ def _call_gpt_extraction(markdown_text: str, client: OpenAI) -> dict:
       "misconceptions": [str]
     }
     """
-    system_prompt = """Sen bir egitim icerik analisti ve pedagoji uzmanisin.
-Sana bir ders notunun Markdown formatindaki metni verilecek.
+    system_prompt = """You are an expert CS education content designer.
+You will receive lecture slides/notes from a university CS course (may include code examples).
 
-Gorev:
-1. Metni analiz ederek ana KONU BASLIKLARINI (topics) belirle
-2. Her konu icin DERS ICERIGI (lessons) cikart — markdown formatini koru
-3. Her konu icin SORULAR (questions) olustur:
-   - Tercihen "multiple_choice" (4 secenekli, 1'i dogru)
-   - Veya "open_response" (kisa yazili cevap)
-   - Zorluk dengeli: easy/medium/hard karisik
-4. Her soru icin ipuclari (hints) olustur (3 kademe, Sokrates yontemi)
-5. Yaygin yanilgıları (misconceptions) belirle
+Your job:
+1. Identify the main TOPICS covered in the material
+2. For each topic, write a COMPREHENSIVE LESSON EXPLANATION in content_markdown:
+   - Write as if teaching a student from scratch
+   - Include concept explanation, how it works, why it matters
+   - Include code examples if present in the source material (preserve them)
+   - Minimum 400 words per lesson, use Markdown headers, bullet points, code blocks
+   - This is the actual study material the student will read — make it complete and educational
+3. For each topic, create 3-5 PRACTICE QUESTIONS:
+   - Mix of multiple_choice (4 options) and open_response
+   - For code-related topics: create questions about code behavior, output, errors
+   - Include fill-in-the-blank style questions when relevant (use ___ in description)
+   - Balanced difficulty: at least 1 easy, 1 medium, 1 hard
+4. For each question: 3-level Socratic hints (level 1 = gentle nudge, level 3 = near answer)
+5. Identify common misconceptions students have about each topic
 
-ONEMLI KURALLAR:
-- Metinde olmayan bilgileri URETME (hallusinasyon yapma)
-- Her topicten en az 2, en fazla 5 soru olustur
-- Turkce metinse Turkce, Ingilizce metinse Ingilizce cikti ver
-- JSON disinda hicbir sey yazma
+CRITICAL RULES:
+- The source material may be lecture SLIDES with only bullet points — this is normal!
+- Use the slides as a TOPIC GUIDE: expand each bullet point into full educational prose
+- Use your expert CS knowledge to write complete, detailed lesson content
+- content_markdown must be DETAILED and COMPLETE (400+ words) even if the slide is brief
+- If the source has C++ code, reproduce it in content_markdown with ```cpp blocks
+- Output ONLY valid JSON, nothing else
+- Language: match the source material language (English if English)
+- IMPORTANT: Slides show WHAT to teach — you write HOW to teach it properly
 
-Istenen JSON formati:
+Required JSON format:
 {
-  "course_title": "Ders adi",
+  "course_title": "Course name from material",
   "topics": [
     {
-      "name": "Konu adi",
-      "description": "Kisaca aciklama",
+      "name": "Topic name",
+      "description": "2-3 sentence description of what this topic covers",
       "lessons": [
         {
-          "title": "Ders basligi",
-          "summary": "Kisaca ozet",
-          "content_markdown": "Tam ders icerigi (markdown)",
-          "estimated_minutes": 20
+          "title": "Lesson title",
+          "summary": "1-2 sentence summary",
+          "content_markdown": "## Lesson Title\n\nFull detailed explanation here (400+ words). Include:\n- Concept explanation\n- How it works step by step\n- Code examples (if any)\n- Why it matters\n- Key takeaways",
+          "estimated_minutes": 25
         }
       ],
       "questions": [
         {
-          "title": "Soru basligi",
-          "description": "Tam soru metni",
+          "title": "Short question title",
+          "description": "Full question text. For fill-in-blank: 'The ___ directive includes a file.'",
           "type": "multiple_choice",
           "difficulty": "medium",
-          "correct_answer": "Dogru cevap metni",
+          "correct_answer": "The exact correct answer text",
           "options": [
-            {"text": "Secen A", "is_correct": true},
-            {"text": "Secen B", "is_correct": false},
-            {"text": "Secen C", "is_correct": false},
-            {"text": "Secen D", "is_correct": false}
+            {"text": "Option A (correct)", "is_correct": true},
+            {"text": "Option B", "is_correct": false},
+            {"text": "Option C", "is_correct": false},
+            {"text": "Option D", "is_correct": false}
           ],
           "hints": [
-            {"level": 1, "content": "Birinci ipucu", "socratic_question": "Sokrates sorusu"},
-            {"level": 2, "content": "Ikinci ipucu", "socratic_question": "Daha detayli Sokrates sorusu"},
-            {"level": 3, "content": "Ucuncu ipucu (neredeyse cevap)", "socratic_question": null}
+            {"level": 1, "content": "Think about what preprocessor directives do", "socratic_question": "What happens before compilation?"},
+            {"level": 2, "content": "The directive starts with # and copies file content", "socratic_question": "Which # directive is for file inclusion?"},
+            {"level": 3, "content": "It is #include", "socratic_question": null}
           ],
-          "misconception": "Bu soruyla ilgili yaygin yanlis anlama"
+          "misconception": "Common mistake students make with this concept"
         }
       ]
     }
   ],
-  "misconceptions": ["Genel yanlis anlama 1", "Genel yanlis anlama 2"]
+  "misconceptions": ["General misconception 1", "General misconception 2"]
 }"""
 
-    user_message = f"""Asagidaki ders notunu analiz et ve JSON cikti ver:
+    user_message = f"""Analyze the following CS lecture material and produce the JSON output:
 
 ---
 {markdown_text}
 ---"""
 
-    logger.info(f"GPT-4o-mini'ye istek gonderiliyor ({len(markdown_text)} karakter)...")
+    logger.info(f"GPT isteği gönderiliyor ({len(markdown_text)} karakter)...")
 
     response = client.chat.completions.create(
         model=EXTRACTION_MODEL,
@@ -227,9 +237,9 @@ Istenen JSON formati:
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
         ],
-        response_format={"type": "json_object"},  # JSON modunu aktif et
-        temperature=0.3,  # Dusuk temperature = daha tutarli/deterministic cikti
-        max_tokens=4000,  # Cikti icin yeterli alan
+        response_format={"type": "json_object"},
+        temperature=0.3,
+        max_tokens=16000,  # 4000'den artırıldı — tam konu anlatımı için yeterli alan
     )
 
     raw_json_str = response.choices[0].message.content
@@ -242,15 +252,14 @@ Istenen JSON formati:
     return extracted
 
 
-def _save_to_database(extracted_json: dict, db: Session) -> dict:
+def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str] = None) -> dict:
     """
-    GPT'nin urettigi JSON'i topics/lessons/problems tablolarina yazar.
+    GPT'nin ürettiği JSON'i topics/lessons/problems tablolarına yazar.
 
-    Not: Her topic icin display_order otomatik belirlenir.
-    Mevcut topic'ler varsa yeni topic olarak eklenir (uzerine yazmaz).
+    week_name verilirse (ör: "Week 1") önce bir parent topic oluşturulur,
+    tüm alt konular o parent'ın altına yerleştirilir.
 
-    Returns:
-        dict: {"topics_created": int, "lessons_created": int, "problems_created": int}
+    is_published=True — içerik DB'ye yazılır yazılmaz öğrenci görebilir.
     """
     topics_created = 0
     lessons_created = 0
@@ -258,17 +267,32 @@ def _save_to_database(extracted_json: dict, db: Session) -> dict:
 
     topics_data = extracted_json.get("topics", [])
 
-    # Mevcut en yuksek display_order'i bul (yeni topic'ler arkaya eklensin)
+    # Mevcut en yüksek display_order'i bul
     max_order_row = db.query(Topic.display_order).order_by(Topic.display_order.desc()).first()
     next_order = (max_order_row[0] + 1) if max_order_row else 0
 
+    # Week parent topic oluştur (ör: "Week 1: Introduction")
+    parent_topic_id = None
+    if week_name:
+        parent_topic = Topic(
+            id=str(uuid.uuid4()),
+            name=week_name,
+            description=extracted_json.get("course_title", ""),
+            display_order=next_order,
+        )
+        db.add(parent_topic)
+        db.flush()
+        parent_topic_id = parent_topic.id
+        topics_created += 1
+        next_order += 1
+
     for topic_data in topics_data:
-        # ── Yeni Topic olustur ────────────────────────────────────────────
         topic = Topic(
             id=str(uuid.uuid4()),
-            name=topic_data.get("name", "Isimsiz Konu"),
+            name=topic_data.get("name", "Unnamed Topic"),
             description=topic_data.get("description", ""),
             display_order=next_order,
+            parent_topic_id=parent_topic_id,  # Week altına bağla
         )
         db.add(topic)
         db.flush()  # ID'yi hemen al (lesson/problem icin gerekli)
@@ -305,14 +329,14 @@ def _save_to_database(extracted_json: dict, db: Session) -> dict:
                     id=str(uuid.uuid4()),
                     topic_id=topic.id,
                     lesson_id=lesson.id,
-                    title=q_data.get("title", "Basliksiz Soru"),
+                    title=q_data.get("title", "Untitled Question"),
                     description=q_data.get("description", ""),
                     type=q_type,
                     difficulty=difficulty,
                     correct_answer=q_data.get("correct_answer", ""),
-                    grading_rubric=q_data.get("misconception", ""),  # yanlis anlama rubric'te
-                    points=10,       # Varsayilan puan
-                    is_published=False,  # Hoca onaylayana kadar yayinlanmaz
+                    grading_rubric=q_data.get("misconception", ""),
+                    points=10,
+                    is_published=True,   # Hemen yayınla — öğrenci görebilsin
                 )
                 db.add(problem)
                 db.flush()

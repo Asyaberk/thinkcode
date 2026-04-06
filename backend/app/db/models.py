@@ -427,11 +427,11 @@ Index("idx_problems_published",        Problem.is_published)
 
 class CourseResource(Base):
     """
-    Hocanın yüklediği ders materyali (PDF, metin dosyası vb.).
+    Hocanın yüklediği ders materyali (PDF, görüntü, kod, metin vb.).
 
-    Chandra OCR pipeline:
+    Pipeline:
       1. Dosya yüklenir → status = 'uploaded'
-      2. pdfplumber / Chandra metni çıkarır → raw_markdown doldurulur
+      2. pdfplumber / GLM-OCR metni çıkarır → raw_markdown doldurulur
       3. GPT extraction tamamlanınca → status = 'done'
     """
     __tablename__ = "course_resources"
@@ -451,11 +451,14 @@ class CourseResource(Base):
     # Sunucuda saklanan fiziksel yol veya S3/storage URL'si
     file_path       = Column(String(1000), nullable=False)
 
-    # Dosya türü: "pdf" | "text" | "markdown"
-    # video/audio şimdilik Mert'in parsing sistemiyle gelecek
+    # Dosya türü: "pdf" | "png" | "jpg" | "cpp" | "py" | "txt" vb.
     file_type       = Column(String(50), nullable=False, default="pdf")
 
-    # Chandra/pdfplumber'ın çıkardığı ham Markdown metni
+    # Hocanın belirttiği hafta (opsiyonel) — parent topic oluştururken kullanılır
+    # ör: "Week 1", "Week 2", None (belirtilmemişse)
+    week_name       = Column(String(100), nullable=True)
+
+    # pdfplumber / GLM-OCR'nın çıkardığı ham metin
     # NULL ise henüz işlenmemiş demektir
     raw_markdown    = Column(Text, nullable=True)
 
