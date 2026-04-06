@@ -26,7 +26,11 @@ langfuse==4.0.0
 beautifulsoup4==4.14.3
 requests==2.32.3
 
-# ── PDF Parsing (Content Builder — Chandra OCR pipeline) ─────────────────────
-# pdfplumber: GPU gerektirmez, tablo destegi var, Chandra yoksa fallback olarak kullanilir
-# Chandra icin: pip install chandra-ocr  (ayrica GPU/vLLM gerekir)
+# ── PDF / Görüntü İşleme (Content Builder pipeline) ──────────────────────────
+# pdfplumber: metin tabanlı PDF'ler için (hızlı, GPU yok)
+# pdf2image:  PDF sayfalarını PIL görüntüsüne çevirir (GLM-OCR fallback için)
+# Pillow:     görüntü okuma/dönüştürme (pdf2image ve GLM-OCR için gerekli)
+# GLM-OCR:   Mert'in sunucusu üzerinden — pip install gerekmez, HTTP isteği yeterli
 pdfplumber==0.11.4
+pdf2image==1.17.0
+Pillow==11.2.1

@@ -8,8 +8,9 @@ Pydantic BaseSettings sınıfı bu okuma işlemini otomatik yapar.
 AYAR GRUPLARI:
   DB_*          → PostgreSQL bağlantı bilgileri (host, port, user, pass, db adı)
   JWT_*         → JSON Web Token şifrelemesi için gizli anahtar ve süre (24 saat)
-  OPENAI_*      → ChatGPT / gpt-4o-mini API anahtarı
+  OPENAI_*      → ChatGPT / gpt-4.1-nano API anahtarı
   LANGFUSE_*    → AI gözlemlenebilirlik platformu (isteğe bağlı)
+  GLM_OCR_*     → Mert'in GLM-OCR sunucusu (görüntü + taranmış PDF okuma)
 
 database_url   → SQLAlchemy'nin anlayacağı PostgreSQL bağlantı URL'si
 get_settings() → Singleton: ayarlar yalnızca bir kez yüklenir, sonra cache'den gelir
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
+    # GLM-OCR — Mert'in sunucusu (görüntü tabanlı belgeler için)
+    # Metin tabanlı PDF'lerde pdfplumber kullanılır, boş gelirse GLM-OCR devreye girer
+    GLM_OCR_API_URL: str = "http://173.249.57.83:7003/v1/chat/completions"
+    GLM_OCR_TOKEN: str = ""
 
     model_config = SettingsConfigDict(
         env_file="../.env",
