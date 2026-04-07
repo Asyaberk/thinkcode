@@ -127,11 +127,18 @@ export const ContentBuilderPage: React.FC<ContentBuilderPageProps> = ({
   const [connections]           = useState<Connection[]>(INITIAL_CONNECTIONS);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
-  // ─── Load resources on mount ──────────────────────────────────────────────
+  // ─── Load resources on mount, auto-select first done one ─────────────────
   useEffect(() => {
     listResources()
-      .then(setResources)
-      .catch(() => {}); // Not authenticated yet → silently ignore
+      .then(data => {
+        setResources(data);
+        // Sayfa açılınca done olan ilk kaynağı otomatik seç
+        const firstDone = data.find(r => r.status === 'done');
+        if (firstDone) {
+          loadContent(firstDone.resource_id);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // ─── Poll processing resources ────────────────────────────────────────────
