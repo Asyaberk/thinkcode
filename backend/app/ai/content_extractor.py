@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 EXTRACTION_MODEL = "gpt-4.1-nano"
 
 # PDF metninin GPT'ye gonderilecek maksimum karakter sayisi
-MAX_TEXT_CHARS = 120_000
+# Artirildi: tum PDF'i tek seferde gondermek icin
+MAX_TEXT_CHARS = 200_000
 
 
 def extract_content_from_markdown(
@@ -153,74 +154,87 @@ def _call_gpt_extraction(markdown_text: str, client: OpenAI) -> dict:
       "misconceptions": [str]
     }
     """
-    system_prompt = """You are an expert CS education content designer.
-You will receive lecture slides/notes from a university CS course (may include code examples).
+    system_prompt = """You are an expert CS professor and curriculum designer.
+You will receive the COMPLETE text of a university CS course lecture document (slides, notes, or handout).
 
-Your job:
-1. Identify the main TOPICS covered in the material
-2. For each topic, write a COMPREHENSIVE LESSON EXPLANATION in content_markdown:
-   - Write as if teaching a student from scratch
-   - Include concept explanation, how it works, why it matters
-   - Include code examples if present in the source material (preserve them)
-   - Minimum 400 words per lesson, use Markdown headers, bullet points, code blocks
-   - This is the actual study material the student will read — make it complete and educational
-3. For each topic, create 3-5 PRACTICE QUESTIONS:
-   - Mix of multiple_choice (4 options) and open_response
-   - For code-related topics: create questions about code behavior, output, errors
-   - Include fill-in-the-blank style questions when relevant (use ___ in description)
-   - Balanced difficulty: at least 1 easy, 1 medium, 1 hard
-4. For each question: 3-level Socratic hints (level 1 = gentle nudge, level 3 = near answer)
-5. Identify common misconceptions students have about each topic
+== STEP 1: HOLISTIC ANALYSIS ==
+First, read the ENTIRE document as a whole.
+Identify the overall course structure, learning objectives, and how topics build on each other.
+Do NOT process page by page — understand the document as a unified curriculum.
 
-CRITICAL RULES:
-- The source material may be lecture SLIDES with only bullet points — this is normal!
-- Use the slides as a TOPIC GUIDE: expand each bullet point into full educational prose
-- Use your expert CS knowledge to write complete, detailed lesson content
-- content_markdown must be DETAILED and COMPLETE (400+ words) even if the slide is brief
-- If the source has C++ code, reproduce it in content_markdown with ```cpp blocks
-- Output ONLY valid JSON, nothing else
-- Language: match the source material language (English if English)
-- IMPORTANT: Slides show WHAT to teach — you write HOW to teach it properly
+== STEP 2: LEARNING PATH DESIGN ==
+Design a coherent learning path from this material:
+- Group related content into logical TOPICS (typically 3-6 per document)
+- Order them so each topic builds on the previous
+- Each topic should have clear prerequisites and outcomes
 
-Required JSON format:
+== STEP 3: LESSON WRITING ==
+For each topic, write ONE comprehensive lesson (content_markdown):
+- MINIMUM 800 words — this is the actual textbook the student will study
+- Structure: ## Title → ### Introduction → ### Core Concepts → ### Deep Dive → ### Code Examples → ### Why It Matters → ### Summary
+- Expand EVERY bullet point from the slides into full explanatory paragraphs
+- Include ALL code from the source material in ```cpp / ```python blocks
+- Write as if the student has never seen this topic — explain everything from first principles
+- estimated_minutes: honest estimate (800 words ≈ 30-40 min)
+
+== STEP 4: PRACTICE QUESTIONS ==
+For each topic, create EXACTLY 4 fill-in-the-blank multiple choice questions:
+
+MANDATORY QUESTION FORMAT — follow exactly:
+- type: ALWAYS "multiple_choice" (never open_response)
+- description: Use ___ (blank) in the question. Examples:
+    "In C++, the ___ directive is processed before compilation begins."
+    "The statement `int arr[___];` declares an array of 10 integers."
+    "When we write #include <stdio.h>, the ___ is responsible for inserting the file content."
+    "The command `g++ -o output ___` compiles all .cpp files."
+- The blank must be fillable from the material — not a generic question
+- options: exactly 4 choices, only 1 correct
+- difficulty distribution: 1 easy, 2 medium, 1 hard
+- hints: 3-level Socratic (level1=gentle nudge, level2=partial answer, level3=near answer)
+
+BAD question (DO NOT DO THIS): "What does the preprocessor do?"
+GOOD question: "The preprocessor handles the ___ directive by replacing it with the file contents before compilation."
+
+== OUTPUT FORMAT ==
+Return ONLY valid JSON:
 {
-  "course_title": "Course name from material",
+  "course_title": "Exact course title from material",
   "topics": [
     {
-      "name": "Topic name",
-      "description": "2-3 sentence description of what this topic covers",
+      "name": "Topic Name",
+      "description": "2-3 sentences: what this topic covers, why it matters, what student will learn",
       "lessons": [
         {
-          "title": "Lesson title",
-          "summary": "1-2 sentence summary",
-          "content_markdown": "## Lesson Title\n\nFull detailed explanation here (400+ words). Include:\n- Concept explanation\n- How it works step by step\n- Code examples (if any)\n- Why it matters\n- Key takeaways",
-          "estimated_minutes": 25
+          "title": "Lesson Title",
+          "summary": "2-sentence summary of what is taught",
+          "content_markdown": "## Topic Title\n\n### Introduction\nFull paragraph (100+ words)...\n\n### Core Concepts\nFull explanation (200+ words)...\n\n### How It Works\n```cpp\n// code from slides\n```\nExplanation...\n\n### Why It Matters\nParagraph...\n\n### Summary\nKey takeaways as bullet list.",
+          "estimated_minutes": 35
         }
       ],
       "questions": [
         {
-          "title": "Short question title",
-          "description": "Full question text. For fill-in-blank: 'The ___ directive includes a file.'",
+          "title": "Fill-in-blank question title",
+          "description": "Complete the statement: The ___ phase converts source code into object files.",
           "type": "multiple_choice",
-          "difficulty": "medium",
-          "correct_answer": "The exact correct answer text",
+          "difficulty": "easy",
+          "correct_answer": "compiler",
           "options": [
-            {"text": "Option A (correct)", "is_correct": true},
-            {"text": "Option B", "is_correct": false},
-            {"text": "Option C", "is_correct": false},
-            {"text": "Option D", "is_correct": false}
+            {"text": "compiler", "is_correct": true},
+            {"text": "preprocessor", "is_correct": false},
+            {"text": "linker", "is_correct": false},
+            {"text": "loader", "is_correct": false}
           ],
           "hints": [
-            {"level": 1, "content": "Think about what preprocessor directives do", "socratic_question": "What happens before compilation?"},
-            {"level": 2, "content": "The directive starts with # and copies file content", "socratic_question": "Which # directive is for file inclusion?"},
-            {"level": 3, "content": "It is #include", "socratic_question": null}
+            {"level": 1, "content": "Think about the three stages: preprocess → compile → link", "socratic_question": "Which stage comes after preprocessing?"},
+            {"level": 2, "content": "The object file (.o) is produced by this stage", "socratic_question": "What tool produces .o files from .cpp files?"},
+            {"level": 3, "content": "g++ invokes the compiler (cc1) which produces object code", "socratic_question": null}
           ],
-          "misconception": "Common mistake students make with this concept"
+          "misconception": "Students often confuse the compiler with the linker — the linker combines object files, it does not translate source code."
         }
       ]
     }
   ],
-  "misconceptions": ["General misconception 1", "General misconception 2"]
+  "misconceptions": ["Common misconception about the whole course topic 1", "Common misconception 2"]
 }"""
 
     user_message = f"""Analyze the following CS lecture material and produce the JSON output:
@@ -239,7 +253,7 @@ Required JSON format:
         ],
         response_format={"type": "json_object"},
         temperature=0.3,
-        max_tokens=16000,  # 4000'den artırıldı — tam konu anlatımı için yeterli alan
+        max_tokens=32000,  # 800+ kelime ders * 4-6 topic + sorular için yeterli
     )
 
     raw_json_str = response.choices[0].message.content
@@ -314,55 +328,64 @@ def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str
             db.flush()
             lessons_created += 1
 
-            # ── Bu topic'e ait Problem'leri olustur ──────────────────────
-            for q_data in topic_data.get("questions", []):
-                q_type = q_data.get("type", "multiple_choice")
-                # Tip dogrulama: sadece bilinen tipler kabul edilir
-                if q_type not in ("coding", "multiple_choice", "open_response"):
-                    q_type = "multiple_choice"
+        # ── Bu topic'e ait Problem'leri olustur (lesson loop DIŞINDA) ──────
+        # BUG FIX: Sorular lesson bazında değil topic bazında — her lesson'da
+        # tekrar yaratılmaması için döngü lesson loop'un dışında.
+        first_lesson_id = None
+        if topic_data.get("lessons"):
+            # İlk lesson ID'sini al (problem.lesson_id için)
+            first_lesson_id = db.query(Lesson.id).filter(
+                Lesson.topic_id == topic.id
+            ).order_by(Lesson.display_order).first()[0]
 
-                difficulty = q_data.get("difficulty", "medium")
-                if difficulty not in ("easy", "medium", "hard"):
-                    difficulty = "medium"
+        for q_data in topic_data.get("questions", []):
+            # Tip dogrulama — open_response'u multiple_choice'a ceviriyoruz
+            q_type = q_data.get("type", "multiple_choice")
+            if q_type not in ("coding", "multiple_choice"):
+                q_type = "multiple_choice"  # open_response kabul edilmez
 
-                problem = Problem(
+            difficulty = q_data.get("difficulty", "medium")
+            if difficulty not in ("easy", "medium", "hard"):
+                difficulty = "medium"
+
+            problem = Problem(
+                id=str(uuid.uuid4()),
+                topic_id=topic.id,
+                lesson_id=first_lesson_id,
+                title=q_data.get("title", "Untitled Question"),
+                description=q_data.get("description", ""),
+                type=q_type,
+                difficulty=difficulty,
+                correct_answer=q_data.get("correct_answer", ""),
+                grading_rubric=q_data.get("misconception", ""),
+                points=10,
+                is_published=True,
+            )
+            db.add(problem)
+            db.flush()
+            problems_created += 1
+
+            # MCQ seceneklerini kaydet
+            for opt_order, opt_data in enumerate(q_data.get("options", [])):
+                option = ProblemOption(
                     id=str(uuid.uuid4()),
-                    topic_id=topic.id,
-                    lesson_id=lesson.id,
-                    title=q_data.get("title", "Untitled Question"),
-                    description=q_data.get("description", ""),
-                    type=q_type,
-                    difficulty=difficulty,
-                    correct_answer=q_data.get("correct_answer", ""),
-                    grading_rubric=q_data.get("misconception", ""),
-                    points=10,
-                    is_published=True,   # Hemen yayınla — öğrenci görebilsin
+                    problem_id=problem.id,
+                    text=opt_data.get("text", ""),
+                    is_correct=opt_data.get("is_correct", False),
+                    display_order=opt_order,
                 )
-                db.add(problem)
-                db.flush()
-                problems_created += 1
+                db.add(option)
 
-                # MCQ seceneklerini kaydet
-                for opt_order, opt_data in enumerate(q_data.get("options", [])):
-                    option = ProblemOption(
-                        id=str(uuid.uuid4()),
-                        problem_id=problem.id,
-                        text=opt_data.get("text", ""),
-                        is_correct=opt_data.get("is_correct", False),
-                        display_order=opt_order,
-                    )
-                    db.add(option)
-
-                # Hint'leri kaydet (Sokrates yontemi)
-                for hint_data in q_data.get("hints", []):
-                    hint = ProblemHint(
-                        id=str(uuid.uuid4()),
-                        problem_id=problem.id,
-                        level=hint_data.get("level", 1),
-                        content=hint_data.get("content", ""),
-                        socratic_question=hint_data.get("socratic_question"),
-                    )
-                    db.add(hint)
+            # Hint'leri kaydet (Sokrates yontemi)
+            for hint_data in q_data.get("hints", []):
+                hint = ProblemHint(
+                    id=str(uuid.uuid4()),
+                    problem_id=problem.id,
+                    level=hint_data.get("level", 1),
+                    content=hint_data.get("content", ""),
+                    socratic_question=hint_data.get("socratic_question"),
+                )
+                db.add(hint)
 
     # Tum degisiklikleri tek seferde commit et
     db.commit()

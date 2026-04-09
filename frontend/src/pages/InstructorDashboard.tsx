@@ -86,7 +86,8 @@ interface InstructorDashboardProps {
   onAnalyticsClick: () => void;
   onSectionSelect: (id: string) => void;
   onInstructorDashboardClick?: () => void;
-  onContentBuilderClick?: () => void;
+  onCourseBuilderClick?: () => void;
+  onFlowDesignerClick?: () => void;
   onLogout?: () => void;
   userRole?: UserRole;
 }
@@ -156,7 +157,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   onAnalyticsClick,
   onSectionSelect,
   onInstructorDashboardClick,
-  onContentBuilderClick,
+  onCourseBuilderClick,
+  onFlowDesignerClick,
   onLogout,
   userRole
 }) => {
@@ -347,7 +349,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
         onProblemsClick={onProblemsClick}
         onAnalyticsClick={onAnalyticsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
-        onContentBuilderClick={onContentBuilderClick}
+        onCourseBuilderClick={onCourseBuilderClick}
+        onFlowDesignerClick={onFlowDesignerClick}
         onLogout={onLogout}
         userRole={userRole}
       />

@@ -224,3 +224,73 @@ class TutorChatResponse(BaseModel):
     chat_history: list[TutorMessage]
     trace_id: Optional[str] = None
 
+
+# ── Instructor CRUD — Create Schemas ─────────────────────────────────────────
+
+class TopicCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class LessonCreate(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    content_markdown: Optional[str] = None
+    estimated_minutes: Optional[int] = 15
+
+class OptionInCreate(BaseModel):
+    text: str
+    is_correct: bool
+
+class ProblemCreate(BaseModel):
+    title: str
+    description: str
+    type: str = "multiple_choice"
+    difficulty: str = "medium"
+    correct_answer: Optional[str] = None
+    options: list[OptionInCreate] = []
+
+# ── Instructor CRUD — Update & Output Schemas ─────────────────────────────────
+
+class TopicUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+class LessonUpdate(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    content_markdown: Optional[str] = None
+    estimated_minutes: Optional[int] = None
+
+class OptionIn(BaseModel):
+    id: Optional[str] = None          # dolu → mevcut option güncelle; boş → yeni ekle
+    text: str
+    is_correct: bool
+
+class ProblemUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    difficulty: Optional[str] = None
+    correct_answer: Optional[str] = None
+    options: Optional[list[OptionIn]] = None  # verilirse tüm seçenekler değiştirilir
+
+class OptionInstructorOut(BaseModel):
+    id: str
+    text: str
+    is_correct: bool
+    display_order: int
+    class Config:
+        from_attributes = True
+
+class ProblemInstructorOut(BaseModel):
+    id: str
+    topic_id: str
+    lesson_id: Optional[str] = None
+    title: str
+    description: str
+    type: str
+    difficulty: str
+    correct_answer: Optional[str] = None
+    points: int
+    options: list[OptionInstructorOut] = []
+    class Config:
+        from_attributes = True

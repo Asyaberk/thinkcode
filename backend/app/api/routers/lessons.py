@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_instructor
 from app.db.models import Lesson, User
-from app.schemas import LessonOut
+from app.schemas import LessonOut, LessonUpdate
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
 
@@ -38,8 +38,6 @@ def generate_lesson_content(
         raise HTTPException(404, "Lesson not found")
         
     if not source_url and not raw_text:
-        # Fallback to the Princeton reference if available
-        # Assume Princeton URLs usually have some format, or we just throw error
         raise HTTPException(400, "Must provide source_url or raw_text")
         
     result = generate_lesson_content_sync(source_url=source_url, raw_text=raw_text)
@@ -56,3 +54,41 @@ def generate_lesson_content(
         "summary": result["summary"],
         "markdown_length": len(result["markdown_content"])
     }
+
+
+@router.patch("/{lesson_id}", response_model=LessonOut)
+def update_lesson(
+    lesson_id: str,
+    body: LessonUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_instructor),
+):
+    """Instructor: ders başlığı, özet, içerik veya süresini günceller."""
+    lesson = db.get(Lesson, lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+    if body.title is not None:
+        lesson.title = body.title
+    if body.summary is not None:
+        lesson.summary = body.summary
+    if body.content_markdown is not None:
+        lesson.content_markdown = body.content_markdown
+    if body.estimated_minutes is not None:
+        lesson.estimated_minutes = body.estimated_minutes
+    db.commit()
+    db.refresh(lesson)
+    return lesson
+
+
+@router.delete("/{lesson_id}", status_code=204)
+def delete_lesson(
+    lesson_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_instructor),
+):
+    """Instructor: dersi siler."""
+    lesson = db.get(Lesson, lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+    db.delete(lesson)
+    db.commit()

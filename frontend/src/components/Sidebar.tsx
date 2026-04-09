@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Circle, ChevronRight, LayoutDashboard, Code2, BarChart3, LogOut, Layers } from 'lucide-react';
+import { CheckCircle2, Circle, ChevronRight, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Section, UserRole } from '../types';
 import { cn } from '../lib/utils';
@@ -12,7 +12,8 @@ interface SidebarProps {
   onProblemsClick?: () => void;
   onAnalyticsClick?: () => void;
   onInstructorDashboardClick?: () => void;
-  onContentBuilderClick?: () => void;
+  onCourseBuilderClick?: () => void;
+  onFlowDesignerClick?: () => void;
   onLogout?: () => void;
   userRole?: UserRole;
   /** Tamamlanan ders oranı 0-100 (isCompleted olan section sayısından hesapla) */
@@ -27,7 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onProblemsClick,
   onAnalyticsClick,
   onInstructorDashboardClick,
-  onContentBuilderClick,
+  onCourseBuilderClick,
+  onFlowDesignerClick,
   onLogout,
   userRole,
   progressPercent = 0,   // varsayilan 0
@@ -91,14 +93,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-emerald-500">Instructor Panel</span>
             </button>
             <button
-              onClick={onContentBuilderClick}
+              onClick={onCourseBuilderClick}
               className={cn(
                 "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
-                activeSectionId === "content-builder" ? "text-white bg-slate-800/30" : "text-slate-400 hover:text-white hover:bg-slate-800/30"
+                activeSectionId === "course-builder" ? "text-white bg-slate-800/30" : "text-slate-400 hover:text-white hover:bg-slate-800/30"
               )}
             >
               <Layers size={18} className="group-hover:text-emerald-500 transition-colors" />
-              <span>Content Builder</span>
+              <span>Course Builder</span>
+            </button>
+            <button
+              onClick={onFlowDesignerClick}
+              className={cn(
+                "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                activeSectionId === "flow-designer" ? "text-white bg-slate-800/30" : "text-slate-400 hover:text-white hover:bg-slate-800/30"
+              )}
+            >
+              <GitBranch size={18} className="group-hover:text-emerald-500 transition-colors" />
+              <span>Flow Designer</span>
             </button>
           </>
         )}

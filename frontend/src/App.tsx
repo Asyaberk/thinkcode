@@ -32,7 +32,8 @@ import { LearningPage } from './pages/LearningPage';
 import { QuestionPage } from './pages/QuestionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { InstructorDashboard } from './pages/InstructorDashboard';
-import { ContentBuilderPage } from './pages/ContentBuilderPage';
+import { CourseBuilderPage } from './pages/CourseBuilderPage';
+import { FlowDesignerPage } from './pages/FlowDesignerPage';
 import { useAuth } from './context/AuthContext';
 import { useTopics } from './hooks/useTopics';
 import { useLessonForTopic } from './hooks/useLesson';
@@ -40,7 +41,7 @@ import { useMastery } from './hooks/useMastery';  // classId icin
 import { getProblemsByTopic } from './api/problems';
 import type { Section, Question, ApiProblem } from './types';
 
-type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'instructor-dashboard' | 'content-builder';
+type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'instructor-dashboard' | 'course-builder' | 'flow-designer';
 
 export default function App() {
   const { user, userRole, logout } = useAuth();
@@ -297,21 +298,38 @@ export default function App() {
           onProblemsClick={() => setCurrentPage('problems')}
           onAnalyticsClick={() => setCurrentPage('analytics')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
-          onContentBuilderClick={() => setCurrentPage('content-builder')}
+          onCourseBuilderClick={() => setCurrentPage('course-builder')}
+          onFlowDesignerClick={() => setCurrentPage('flow-designer')}
           onLogout={handleLogout}
           userRole={userRole}
         />
       )}
 
-      {currentPage === 'content-builder' && (
-        <ContentBuilderPage
+      {currentPage === 'course-builder' && (
+        <CourseBuilderPage
           sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onProblemsClick={() => setCurrentPage('problems')}
           onAnalyticsClick={() => setCurrentPage('analytics')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
-          onContentBuilderClick={() => setCurrentPage('content-builder')}
+          onCourseBuilderClick={() => setCurrentPage('course-builder')}
+          onFlowDesignerClick={() => setCurrentPage('flow-designer')}
+          onLogout={handleLogout}
+          userRole={userRole}
+        />
+      )}
+
+      {currentPage === 'flow-designer' && (
+        <FlowDesignerPage
+          sections={sectionsWithCompletion}
+          onSectionSelect={handleSectionSelect}
+          onDashboardClick={() => setCurrentPage('dashboard')}
+          onProblemsClick={() => setCurrentPage('problems')}
+          onAnalyticsClick={() => setCurrentPage('analytics')}
+          onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
+          onCourseBuilderClick={() => setCurrentPage('course-builder')}
+          onFlowDesignerClick={() => setCurrentPage('flow-designer')}
           onLogout={handleLogout}
           userRole={userRole}
         />
