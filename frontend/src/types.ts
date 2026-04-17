@@ -229,3 +229,10 @@ export type UserProgress = {
   completedSections: string[];
   currentSectionId: string;
 };
+
+// ── Courses ───────────────────────────────────────────────────────────────────
+export type Course = {
+  id: string;
+  name: string;
+  role: string;
+};

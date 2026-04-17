@@ -261,6 +261,56 @@ def list_resources(
     ]
 
 
+@router.post("/link", status_code=201)
+def add_resource_link(
+    title: str = Form(...),
+    source_url: str = Form(...),
+    link_type: str = Form("link"),   # 'pdf' | 'video' | 'link'
+    week_name: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Dosya yüklemek yerine harici link ekle (Google Drive, YouTube, vb.).
+
+    - Öğrenci her bilgisayardan bu linke ulaşabilir
+    - file_path boş bırakılır, source_url doldurulur
+    - status direkt 'done' — işleme gerekmez, link hazır
+
+    Döndürür: { resource_id, title, source_url, status }
+    """
+    if current_user.role not in ("instructor", "admin"):
+        raise HTTPException(status_code=403, detail="Sadece instructor link ekleyebilir.")
+
+    resource_id = str(uuid.uuid4())
+
+    resource = CourseResource(
+        id=resource_id,
+        instructor_id=current_user.id,
+        filename=title,
+        file_path="",            # harici link, disk dosyası yok
+        file_type=link_type,
+        week_name=week_name,
+        source_url=source_url,
+        status="done",           # link hemen kullanılabilir
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(resource)
+    db.commit()
+    db.refresh(resource)
+
+    logger.info(f"Link eklendi: {title} → {source_url}")
+    return {
+        "resource_id": resource.id,
+        "title": title,
+        "source_url": source_url,
+        "link_type": link_type,
+        "status": "done",
+        "message": "Link başarıyla eklendi. Öğrenciler direkt erişebilir.",
+    }
+
+
 @router.get("/{resource_id}/content")
 def get_resource_content(
     resource_id: str,

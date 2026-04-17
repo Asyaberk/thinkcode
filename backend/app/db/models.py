@@ -462,6 +462,10 @@ class CourseResource(Base):
     # NULL ise henüz işlenmemiş demektir
     raw_markdown    = Column(Text, nullable=True)
 
+    # Harici kaynak linki: Google Drive, YouTube, herhangi bir URL
+    # Dosya yüklemek yerine link eklenirse file_path boş, source_url dolu olur
+    source_url      = Column(String(2000), nullable=True)
+
     # İşlenme durumu: uploaded → processing → done | failed
     status          = Column(ResourceStatusEnum, nullable=False, default="uploaded")
 
@@ -515,3 +519,53 @@ class AiExtractedContent(Base):
 # Hızlı sorgu indexleri (course_resources tablosu için)
 Index("idx_resources_instructor", CourseResource.instructor_id)
 Index("idx_resources_status",     CourseResource.status)
+
+
+# ─────────────────────────────────────────────────────────────
+# COURSE FLOWS — Pedagogical Flow Designer
+#
+# Hoca Flow Designer sayfasında bir akış tasarlar ve kaydeder.
+# Her akış bir class'a bağlıdır ve öğrencilerin nasıl ilerleyeceğini belirler.
+#
+# Akış JSON formatında saklanır:
+#   nodes: [{id, type, x, y, label, config}]
+#   connections: [{from, to, label, color}]
+#
+# Status:
+#   draft : Hoca henüz teslim etmedi, öğrenci etkilenmez
+#   live  : Deploy edildi, öğrenci bu akışı yaşar
+# ─────────────────────────────────────────────────────────────
+
+FlowStatusEnum = Enum("draft", "live", name="flow_status")
+
+class CourseFlow(Base):
+    """
+    Hocanın Flow Designer'da oluşturduğu pedagojik akış.
+
+    Bir class için yalnızca bir 'live' flow olabilir.
+    Öğrenci sayfaları bu tablodan aktif flow'u çekerek davranışlarını ayarlar.
+    """
+    __tablename__ = "course_flows"
+
+    id            = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    class_id      = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    instructor_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # Seçilen pattern adı: 'socratic_retry', 'mastery_gate', 'spaced_retrieval', 'adaptive_branch', 'custom'
+    pattern       = Column(String(100), nullable=False, default="custom")
+
+    # Canvas'taki tüm node ve bağlantılar
+    flow_json     = Column(JSONB, nullable=False, default=dict)
+
+    # Pattern'a özel ayarlar: {consecutive_correct: 3, max_hints: 2, review_days: [1,3,7], ...}
+    config        = Column(JSONB, nullable=False, default=dict)
+
+    # draft | live
+    status        = Column(FlowStatusEnum, nullable=False, default="draft")
+
+    created_at    = Column(DateTime(timezone=True), default=_now)
+    updated_at    = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+Index("idx_flows_class",   CourseFlow.class_id)
+Index("idx_flows_status",  CourseFlow.class_id, CourseFlow.status)
