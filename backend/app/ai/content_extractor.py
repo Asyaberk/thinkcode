@@ -51,6 +51,7 @@ def extract_content_from_markdown(
     db: Session,
     openai_client: Optional[OpenAI] = None,
     week_name: Optional[str] = None,  # ör: "Week 1" — parent topic oluşturur
+    class_id: Optional[str] = None,   # Hangi sınıfa ait topic'ler oluşturulsun
 ) -> dict:
     """
     Markdown metninden AI ile kurs icerigi cikarir ve DB'ye kaydeder.
@@ -87,7 +88,7 @@ def extract_content_from_markdown(
     extracted_json = _call_gpt_extraction(markdown_text, openai_client)
 
     # DB'ye kaydet — week_name verilmisse parent topic altına
-    counts = _save_to_database(extracted_json, db, week_name=week_name)
+    counts = _save_to_database(extracted_json, db, week_name=week_name, class_id=class_id, source_resource_id=resource_id)
 
     # ai_extracted_content tablosuna ozet kaydet
     extraction_record = AiExtractedContent(
@@ -266,13 +267,14 @@ Return ONLY valid JSON:
     return extracted
 
 
-def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str] = None) -> dict:
+def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str] = None, class_id: Optional[str] = None, source_resource_id: Optional[str] = None) -> dict:
     """
     GPT'nin ürettiği JSON'i topics/lessons/problems tablolarına yazar.
 
     week_name verilirse (ör: "Week 1") önce bir parent topic oluşturulur,
     tüm alt konular o parent'ın altına yerleştirilir.
 
+    source_resource_id: hangi PDF/video'dan üretildiği — öğrenci kaynağa gidebilsin.
     is_published=True — içerik DB'ye yazılır yazılmaz öğrenci görebilir.
     """
     topics_created = 0
@@ -286,19 +288,29 @@ def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str
     next_order = (max_order_row[0] + 1) if max_order_row else 0
 
     # Week parent topic oluştur (ör: "Week 1: Introduction")
+    # Aynı isimde mevcut topic varsa yeniden kullan (duplikat önleme)
     parent_topic_id = None
     if week_name:
-        parent_topic = Topic(
-            id=str(uuid.uuid4()),
-            name=week_name,
-            description=extracted_json.get("course_title", ""),
-            display_order=next_order,
+        existing_parent = (
+            db.query(Topic)
+            .filter(Topic.name == week_name, Topic.class_id == class_id, Topic.parent_topic_id == None)
+            .first()
         )
-        db.add(parent_topic)
-        db.flush()
-        parent_topic_id = parent_topic.id
-        topics_created += 1
-        next_order += 1
+        if existing_parent:
+            parent_topic_id = existing_parent.id
+        else:
+            parent_topic = Topic(
+                id=str(uuid.uuid4()),
+                name=week_name,
+                description=extracted_json.get("course_title", ""),
+                display_order=next_order,
+                class_id=class_id,
+            )
+            db.add(parent_topic)
+            db.flush()
+            parent_topic_id = parent_topic.id
+            topics_created += 1
+            next_order += 1
 
     for topic_data in topics_data:
         topic = Topic(
@@ -307,6 +319,8 @@ def _save_to_database(extracted_json: dict, db: Session, week_name: Optional[str
             description=topic_data.get("description", ""),
             display_order=next_order,
             parent_topic_id=parent_topic_id,  # Week altına bağla
+            class_id=class_id,                # Sınıf etiketi
+            source_resource_id=source_resource_id,  # Kaynak PDF/video
         )
         db.add(topic)
         db.flush()  # ID'yi hemen al (lesson/problem icin gerekli)

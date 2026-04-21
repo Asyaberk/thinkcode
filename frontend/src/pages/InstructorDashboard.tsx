@@ -22,6 +22,10 @@ import {
   MessageSquare,
   ArrowUpRight,
   Loader2,
+  Shield,
+  RotateCcw,
+  Clock,
+  GitBranch,
 } from 'lucide-react';
 import {
   ComposedChart,
@@ -35,6 +39,7 @@ import {
   Cell
 } from 'recharts';
 import { api } from '../api/client';
+import { useInstructorClasses } from '../hooks/useInstructorClasses';
 
 // ── Tip tanımları (backend response formatı, mockData ile birebir uyumlu) ──
 interface ClassOverview {
@@ -162,6 +167,24 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   onLogout,
   userRole
 }) => {
+  // — Sınıf seçici —
+  const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
+  const [activeClassId, setActiveClassId] = useState<string>('');
+  const activeClass = instructorClasses.find(c => c.class_id === activeClassId);
+
+  // Sınıf listesi yüklenince ilk sınıfı seç
+  useEffect(() => {
+    if (instructorClasses.length > 0 && !activeClassId) {
+      setActiveClassId(instructorClasses[0].class_id);
+    }
+  }, [instructorClasses, activeClassId]);
+
+  const PATTERN_META: Record<string, { icon: any; label: string; color: string }> = {
+    mastery_gate:    { icon: Shield,    label: 'Mastery Gate',    color: 'text-purple-400' },
+    socratic_retry:  { icon: RotateCcw, label: 'Socratic Retry',  color: 'text-blue-400'   },
+    spaced_retrieval:{ icon: Clock,     label: 'Spaced Retrieval',color: 'text-amber-400'  },
+    adaptive_branch: { icon: GitBranch, label: 'Adaptive Branch', color: 'text-emerald-400'},
+  };
   // ── State ────────────────────────────────────────────────────────────────
   const [data, setData] = useState<InstructorData>(LOADING_DATA);
   const [isLoading, setIsLoading] = useState(true);
@@ -183,16 +206,9 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
       try {
         setIsLoading(true);
 
-        // 1. Instructor'un class_id'sini al
-        const classInfo = await api.get<{ class_id: string; class_name: string; total_students: number }>(
-          '/instructor/me/class'
-        );
-
-        // 2. Sınıf dashboard verisini yükle
-        const dashboard = await api.get<any>(`/instructor/${classInfo.class_id}/dashboard`);
-
-        // 3. Öğrenci listesini al
-        const students = await api.get<any[]>(`/instructor/${classInfo.class_id}/students`);
+        // activeClassId kullan (seçilen sınıf)
+        const dashboard = await api.get<any>(`/instructor/${activeClassId}/dashboard`);
+        const students = await api.get<any[]>(`/instructor/${activeClassId}/students`);
 
         // ── Backend → mockData formatına dönüştür ─────────────────────────
         // Harf notu dağılımı — geçme notu 35
@@ -242,7 +258,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
         setData({
           classOverview: {
-            totalStudents: dashboard.total_students || classInfo.total_students,
+            totalStudents: dashboard.total_students || 0,
             averageScore: avgScore,
             medianScore: parseFloat(dashboard.median_mastery) || 0,
             stdDev: Math.round(stdDev * 100) / 100,
@@ -312,15 +328,14 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
     };
 
     fetchData();
-  }, []);
+  }, [activeClassId]);
 
   // ── AI Gap Analysis butonu ────────────────────────────────────────────────
   const handleGenerateReport = async () => {
+    if (!activeClassId) return;
     try {
       setIsGeneratingReport(true);
-      // class_id'yi önce al
-      const classInfo = await api.get<{ class_id: string }>('/instructor/me/class');
-      const result = await api.post<{ ai_analysis: string }>(`/instructor/${classInfo.class_id}/analyze-gaps`, {});
+      const result = await api.post<{ ai_analysis: string }>(`/instructor/${activeClassId}/analyze-gaps`, {});
       setAiReport(result.ai_analysis || 'No analysis available.');
     } catch (err) {
       console.error('Gap analysis error:', err);
@@ -358,21 +373,45 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
       <main className="flex-1 overflow-y-auto ml-72">
         <div className="p-8 max-w-7xl mx-auto space-y-8">
 
-          {/* ── Header ───────────────────────────────────────────────── */}
-          <div className="flex justify-between items-end">
+          {/* — Header: Sınıf Seçici — */}
+          <div className="flex justify-between items-start gap-4 flex-wrap">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Instructor Dashboard</h1>
-              <p className="text-slate-400">Class Performance & Learning Analytics for Algorithms 101</p>
+              <h1 className="text-3xl font-bold text-white mb-3">Instructor Dashboard</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                {instructorClasses.map(cls => {
+                  const pm = cls.active_pattern ? PATTERN_META[cls.active_pattern] : null;
+                  return (
+                    <button
+                      key={cls.class_id}
+                      onClick={() => { setActiveClassId(cls.class_id); setAiReport(null); }}
+                      className={cn(
+                        'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all',
+                        activeClassId === cls.class_id
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500'
+                      )}
+                    >
+                      <span>{cls.class_code}</span>
+                      <span className="text-slate-500">·</span>
+                      <span>{cls.total_students} students</span>
+                      {pm && (
+                        <span className={cn('flex items-center gap-1 ml-1', pm.color)}>
+                          <pm.icon size={10} />
+                          <span className="text-[9px]">{pm.label}</span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex gap-3">
-              {/* Öğrenci sayısı rozeti */}
+            <div className="flex gap-3 items-start">
               <div className="px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center gap-2">
                 <Users size={18} className="text-emerald-500" />
                 <span className="text-sm font-medium">
                   {isLoading ? '...' : `${classOverview.totalStudents} Students`}
                 </span>
               </div>
-              {/* AI Gap Analysis butonu */}
               <button
                 onClick={handleGenerateReport}
                 disabled={isGeneratingReport}

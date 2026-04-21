@@ -17,7 +17,9 @@ import {
   Zap,
   Target,
   BarChart3,
-  Users
+  Users,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import { Section, UserRole } from '../types';
@@ -39,6 +41,12 @@ interface DashboardPageProps {
   userRole?: UserRole;
   /** Submission sonrası dashboard'u yenilemek için arttırılır */
   refreshKey?: number;
+  /** Öğrencinin sınıf ID'si — Spaced Review fetch için */
+  classId?: string;
+  /** Bugün vadesi gelen Spaced Review kayıtları */
+  dueReviews?: import('../api/flows').SpacedReviewItem[];
+  /** Spaced Review sorusuna git */
+  onReviewStart?: (problemId: string) => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -51,6 +59,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onLogout,
   userRole,
   refreshKey = 0,
+  classId,
+  dueReviews = [],
+  onReviewStart,
 }) => {
   // ── State: API verisi ────────────────────────────────────────────────────────
   const [dashData, setDashData] = useState<DashboardData | null>(null);
@@ -95,6 +106,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const rank = dashData?.rank ?? null;
   const totalStudents = dashData?.total_students_in_class ?? 0;
   const firstName = dashData?.user?.first_name ?? 'Developer';
+  const lastName = dashData?.user?.last_name ?? '';
+  const fullName = lastName ? `${firstName} ${lastName}` : firstName;
 
   // Konu mastery listesi: API'den gelir, yoksa mock başlangıç değerleri
   const topicProgress = dashData?.all_topics?.map(t => ({
@@ -156,8 +169,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         userRole={userRole}
         progressPercent={totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}
       />
-      <div className="flex-1 ml-72 text-slate-200 p-8 lg:p-12">
-        <div className="max-w-7xl mx-auto">
+      <div className="flex-1 ml-72 text-slate-200 p-8 lg:p-12 relative overflow-hidden">
+        {/* Emerald gradient glows — login sayfası sağ tarafı tarzı */}
+        <div className="absolute top-[-15%] right-[-8%] w-[520px] h-[520px] bg-emerald-500 rounded-full blur-[140px] opacity-[0.07] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[5%] w-[420px] h-[420px] bg-emerald-500 rounded-full blur-[120px] opacity-[0.05] pointer-events-none" />
+        <div className="max-w-7xl mx-auto relative z-10">
 
           {/* Header — kullanıcı ismi API'den dinamik */}
           <header className="mb-12 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -167,9 +183,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 className="text-4xl font-bold text-white tracking-tight mb-2"
               >
-                Welcome back, <span className="text-emerald-500 italic font-serif">{firstName}</span>.
+                Welcome back, <span className="text-emerald-500 italic font-serif">{fullName}</span>!
               </motion.h1>
               <p className="text-slate-400 font-medium">Ready to continue your mastery journey?</p>
+              {/* Sınıf bilgisi badge */}
+              {dashData?.class_code && (
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="mt-3 inline-flex items-center gap-2"
+                >
+                  <span className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                    <Users size={12} className="text-indigo-400" />
+                    <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-widest">{dashData.class_code}</span>
+                    <span className="text-slate-600">·</span>
+                    <span className="text-[11px] text-slate-400">{dashData.class_name}</span>
+                  </span>
+                </motion.div>
+              )}
             </div>
             {/* Streak: DB'den — submission geçmişindeki ardışık günler */}
             <div className="flex items-center gap-4">
@@ -188,6 +220,38 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             </div>
           </header>
+
+          {/* ┌─────────────────────────────────────────────────────── */}
+          {/* Spaced Retrieval — Bugün Tekrar Zamanı! */}
+          {/* └─────────────────────────────────────────────────────── */}
+          {dueReviews.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8 p-5 bg-amber-500/8 border border-amber-500/25 rounded-2xl flex items-center gap-5"
+            >
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                <RotateCcw size={20} className="text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-amber-300 mb-0.5 flex items-center gap-2">
+                  <Clock size={13} className="text-amber-400" />
+                  Bugün Tekrar Zamanı! — Spaced Retrieval
+                </div>
+                <div className="text-xs text-slate-400">
+                  {dueReviews.length === 1
+                    ? `“${dueReviews[0].topic_name ?? 'Konu'}” konusundan 1 tekrar sorunuz var.`
+                    : `${dueReviews.length} konudan toplam ${dueReviews.length} tekrar sorunuz var.`}
+                </div>
+              </div>
+              <button
+                onClick={() => onReviewStart?.(dueReviews[0].problem_id)}
+                className="px-5 py-2.5 bg-amber-500 text-slate-950 text-xs font-bold rounded-xl hover:bg-amber-400 transition-all shrink-0 flex items-center gap-2"
+              >
+                Tekrara Başla <ChevronRight size={12} />
+              </button>
+            </motion.div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 

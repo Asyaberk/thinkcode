@@ -51,6 +51,8 @@ export interface Topic {
   book_url: string;
   display_order: number;
   parent_topic_id: string | null;
+  lesson_count: number;    // Backend'den geliyor
+  problem_count: number;   // Backend'den geliyor
 }
 
 // ── Lessons & Materials ───────────────────────────────────────────────────────

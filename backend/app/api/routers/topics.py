@@ -26,6 +26,7 @@ def create_topic(
         name=body.name,
         description=body.description,
         display_order=next_order,
+        class_id=body.class_id,
     )
     db.add(topic)
     db.commit()
@@ -33,30 +34,46 @@ def create_topic(
     return topic
 
 
-@router.get("", response_model=list[TopicOut])
-def list_topics(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    from sqlalchemy import exists
-    from app.db.models import Problem
+@router.get("")
+def list_topics(
+    class_id: str | None = None,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Sınıfa özgü konuları döner. class_id verilmezse tümünü döner (instructor)."""
+    from sqlalchemy import or_
 
-    all_topics = db.query(Topic).order_by(Topic.display_order).all()
+    q = db.query(Topic).order_by(Topic.display_order)
+    if class_id:
+        q = q.filter(Topic.class_id == class_id)
 
-    # Her topic'in ID kumesini olustur
-    all_ids = {t.id for t in all_topics}
-    # Dersi olan topic'ler
-    has_lesson = {t.id for t in all_topics if t.lessons}
-    # Yayinlanmis problemi olan topic'ler
-    has_problem = {t.id for t in all_topics if any(p.is_published for p in t.problems)}
-    # Alt topic'i olan topic'ler (parent olanlar)
+    all_topics = q.all()
+    has_lesson   = {t.id for t in all_topics if t.lessons}
+    has_problem  = {t.id for t in all_topics if any(p.is_published for p in t.problems)}
     has_children = {t.parent_topic_id for t in all_topics if t.parent_topic_id}
 
     def _keep(t: Topic) -> bool:
-        # Alt konuysa (parent'i var) her zaman goster
         if t.parent_topic_id:
             return True
-        # Ust konuysa: ya icerik var ya cocuk var
         return t.id in has_lesson or t.id in has_problem or t.id in has_children
 
-    return [t for t in all_topics if _keep(t)]
+    filtered = [t for t in all_topics if _keep(t)]
+
+    # lesson_count ve problem_count ile zenginleştir
+    return [
+        {
+            "id":              t.id,
+            "name":            t.name,
+            "description":     t.description,
+            "book_chapter":    t.book_chapter,
+            "book_url":        t.book_url,
+            "display_order":   t.display_order,
+            "parent_topic_id": t.parent_topic_id,
+            "lesson_count":    len(t.lessons),
+            "problem_count":   len([p for p in t.problems if p.is_published]),
+        }
+        for t in filtered
+    ]
 
 
 
@@ -152,3 +169,41 @@ def delete_topic(
     db.query(Lesson).filter(Lesson.topic_id == topic_id).delete(synchronize_session=False)
     db.delete(topic)
     db.commit()
+
+
+@router.get("/{topic_id}/resources")
+def get_topic_resources(
+    topic_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    Bir konuya bağlı kaynak materyallerini döner.
+    Öğrenci LearningPage'de "Kaynağa Git" butonu için kullanılır.
+
+    Döndürür:
+      { resource_id, title, source_url, file_type, has_file, download_url }
+    """
+    from app.db.models import CourseResource
+
+    topic = db.get(Topic, topic_id)
+    if not topic:
+        raise HTTPException(404, "Topic not found")
+
+    if not topic.source_resource_id:
+        return []   # Kaynak yok — manuel oluşturulmuş topic
+
+    resource = db.get(CourseResource, topic.source_resource_id)
+    if not resource:
+        return []
+
+    return [{
+        "resource_id":   resource.id,
+        "title":         resource.filename,
+        "source_url":    resource.source_url,
+        "file_type":     resource.file_type,
+        "week_name":     resource.week_name,
+        # Diskdeki PDF varsa download URL'si
+        "has_file":      bool(resource.file_path and resource.file_path != ""),
+        "download_url":  f"/api/v1/resources/{resource.id}/download" if resource.file_path else None,
+    }]

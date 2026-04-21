@@ -37,22 +37,42 @@ import { FlowDesignerPage } from './pages/FlowDesignerPage';
 import { useAuth } from './context/AuthContext';
 import { useTopics } from './hooks/useTopics';
 import { useLessonForTopic } from './hooks/useLesson';
-import { useMastery } from './hooks/useMastery';  // classId icin
+import { useMastery } from './hooks/useMastery';
+import { useActiveFlow } from './hooks/useActiveFlow';
 import { getProblemsByTopic } from './api/problems';
+import { getDueSpacedReviews } from './api/flows';
+import type { SpacedReviewItem } from './api/flows';
 import type { Section, Question, ApiProblem } from './types';
 
 type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'instructor-dashboard' | 'course-builder' | 'flow-designer';
 
 export default function App() {
   const { user, userRole, logout } = useAuth();
-  const { sections, isLoading: topicsLoading } = useTopics();
   // useMastery: classId + topicMasteryMap (isCompleted icin) DB'den otomatik alir
   const { classId: masteryClassId, topicMasteryMap, topicPassedMap, topicAttemptedMap, refetch: refetchMastery } = useMastery();
+  const classId = masteryClassId ?? '';
+  // Sınıfa özel konuları çek (lesson_count ile birlikte)
+  const { topics, sections, isLoading: topicsLoading } = useTopics(classId || null);
+
+  // Aktif pedagojik flow (Flow Designer'dan deploy edilen)
+  const { flow: activeFlow } = useActiveFlow(classId || null);
   const [currentPage, setCurrentPage] = useState<Page>('login');
   const [activeSectionId, setActiveSectionId] = useState<string>('');
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [apiQuestion, setApiQuestion] = useState<Question | null>(null);
-  const classId = masteryClassId ?? '';
+  // Mastery Gate: art arda doğru sayıcı (konu değişince sıfırlanır)
+  const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
+  // Tüm konu soruları (Mastery Gate 3 farklı soru için)
+  const [topicQuestions, setTopicQuestions] = useState<Question[]>([]);
+  // Kaçıncı sorudayiz (Mastery Gate'e özel)
+  const [masteryQuestionIndex, setMasteryQuestionIndex] = useState(0);
+  // Adaptive Branch: soruda hangi asamadayiz
+  type AdaptivePhase = 'question_first' | 'intro_lesson' | 'advanced_lesson' | 'confirmation' | null;
+  const [adaptivePhase, setAdaptivePhase] = useState<AdaptivePhase>(null);
+  // Adaptive Branch: hangi soru confirmation için saklanıyor
+  const [adaptiveQuestion, setAdaptiveQuestion] = useState<Question | null>(null);
+  // Spaced Retrieval: bugün vadesi gelen review'lar
+  const [dueReviews, setDueReviews] = useState<SpacedReviewItem[]>([]);
 
   // Restore page on session / topics load
   useEffect(() => {
@@ -67,69 +87,74 @@ export default function App() {
     }
   }, [user, userRole]);
 
-  // Set default section once topics load
+  // Set default section once topics load — lesson'ı olan ilk topic'i seç
   useEffect(() => {
     if (sections.length > 0 && !activeSectionId) {
-      setActiveSectionId(sections[0].id);
+      // lesson_count > 0 olan ilk topic'i, yoksa problem_count > 0'ı, yoksa ilk'i seç
+      const withLesson  = sections.find(s => (topics.find(t => t.id === s.id)?.lesson_count ?? 0) > 0);
+      const withProblem = sections.find(s => (topics.find(t => t.id === s.id)?.problem_count ?? 0) > 0);
+      setActiveSectionId((withLesson ?? withProblem ?? sections[0]).id);
     }
-  }, [sections, activeSectionId]);
+  }, [sections, activeSectionId, topics]);
 
   // class_id artik useMastery hook'undan otomatik geliyor — manuel fetch kaldirildi
 
-  // Topic değişince API'den o topic'in ilk MCQ sorusunu çek
-  // Learning Path → Ders → Start Practice akışı gerçek Sedgewick sorusu gösterir
+  // Spaced Retrieval: classId ve pattern hazırsa due review'ları çek
+  useEffect(() => {
+    if (!classId || activeFlow.pattern !== 'spaced_retrieval') { setDueReviews([]); return; }
+    getDueSpacedReviews(classId).then(setDueReviews).catch(() => setDueReviews([]));
+  }, [classId, activeFlow.pattern]); // dashRefreshKey burada OLMAMALI — daha sonra tanımlanıyor
+
+  // Topic değişince tüm soruları çek (Mastery Gate için farklı sorular)
   useEffect(() => {
     if (!activeSectionId) return;
     let cancelled = false;
 
+    const typeMap: Record<string, Question['type']> = {
+      multiple_choice: 'Multiple Choice',
+      coding:          'Coding',
+      open_response:   'Open Response',
+    };
+
+    const mapProblem = (p: ApiProblem): Question => ({
+      id:          p.id,
+      problemId:   p.id,
+      lessonId:    activeSectionId,
+      title:       p.title,
+      description: p.description,
+      type:        typeMap[p.type] ?? 'Multiple Choice',
+      explanation: p.grading_rubric || p.correct_answer || 'Review the Sedgewick textbook for this topic.',
+      starterCode: p.starter_code ||
+                   (p.type === 'multiple_choice'
+                     ? `// ${p.title}\n// Select the correct option below:\n\nAnswer: _ANSWER_`
+                     : `// ${p.title}\n// Write your solution here\n`),
+      options: (p.options || []).map(o => ({ id: o.id, text: o.text })),
+      correctOptionId: (p.options || []).find(o => o.is_correct)?.id,
+      relatedResources: [],
+    });
+
     getProblemsByTopic(activeSectionId)
       .then((problems: ApiProblem[]) => {
         if (cancelled || problems.length === 0) return;
-
-        // MCQ öncelikli — varsa MCQ seç, yoksa coding, yoksa herhangi biri
-        const preferred =
-          problems.find(p => p.type === 'multiple_choice') ||
-          problems.find(p => p.type === 'coding') ||
-          problems[0];
-
-        // Backend type → QuestionPage type eşleştirmesi
-        const typeMap: Record<string, Question['type']> = {
-          multiple_choice: 'Multiple Choice',
-          coding:          'Coding',
-          open_response:   'Open Response',
-        };
-
-        const q: Question = {
-          id:          preferred.id,
-          /** problemId — backend UUID, submitAnswer() API çağrısı için */
-          problemId:   preferred.id,
-          lessonId:    activeSectionId,
-          title:       preferred.title,
-          description: preferred.description,
-          type:        typeMap[preferred.type] ?? 'Multiple Choice',
-          // Açıklama: grading_rubric veya correct_answer kullan
-          explanation: preferred.grading_rubric ||
-                       preferred.correct_answer ||
-                       'Review the Sedgewick textbook for this topic.',
-          // Starter code: MCQ'da _ANSWER_ placeholder ekle (handleOptionSelect dolduracak)
-          starterCode: preferred.starter_code ||
-                       (preferred.type === 'multiple_choice'
-                         ? `// ${preferred.title}\n// Select the correct option below:\n\nAnswer: _ANSWER_`
-                         : `// ${preferred.title}\n// Write your solution here\n`),
-          // MCQ seçenekleri: is_correct true olanı correctOptionId olarak işaretle
-          options: (preferred.options || []).map(o => ({ id: o.id, text: o.text })),
-          correctOptionId: (preferred.options || []).find(o => o.is_correct)?.id,
-          relatedResources: [],
-        };
-        setApiQuestion(q);
+        const allQ = problems.map(mapProblem);
+        if (!cancelled) {
+          setTopicQuestions(allQ);
+          // Non-mastery flow: ilk MCQ soruyu göster
+          const preferred =
+            problems.find(p => p.type === 'multiple_choice') ||
+            problems.find(p => p.type === 'coding') ||
+            problems[0];
+          setApiQuestion(mapProblem(preferred));
+          setMasteryQuestionIndex(0);
+        }
       })
       .catch(() => {
-        // API bağlanamadıysa null bırak — fallback yok, loading göster
-        setApiQuestion(null);
+        if (!cancelled) setApiQuestion(null);
       });
     return () => { cancelled = true; };
   }, [activeSectionId]);
 
+  // currentQuestion: Mastery Gate ise farklı soru göster, değilse ilk MCQ
 
   // isCompleted = passed > 0 AND passed === attempted
   // Yani: tum denenen sorularin SON denemesi dogru olmali.
@@ -152,15 +177,30 @@ export default function App() {
   const fallbackLesson = {
     id: activeSectionId,
     sectionId: activeSectionId,
-    title: topicsLoading ? 'Loading...' : 'Select a Topic',
-    content: '# Loading lesson content...',
+    title: topicsLoading
+      ? 'Yükleniyor...'
+      : 'Bu konu için henüz ders içeriği eklenmemiş',
+    content: topicsLoading
+      ? '# Yükleniyor...'
+      : '# İçerik Bekleniyor\n\nBu konu için ders materyali henüz yüklenmemiş. Hoca tarafından eklenince burada görünecek.\n\nSoldaki başka bir konuya geçebilirsin.',
   };
 
   const currentLesson = apiLesson ?? fallbackLesson;
 
-  // currentQuestion: API'den gelen Sedgewick sorusu — async yuklenir
-  // Artık mock data kullanilmiyor: her soru gercek DB'den gelir
-  const currentQuestion: Question | null = apiQuestion ?? null;
+  const masteryThreshold = activeFlow.config.consecutive_correct ?? 3;
+  const isMasteryGateActive = activeFlow.pattern === 'mastery_gate';
+
+  // Mastery Gate: topic soruları arasında dön (cycling)
+  const currentQuestion: Question | null = isMasteryGateActive && topicQuestions.length > 0
+    ? topicQuestions[masteryQuestionIndex % topicQuestions.length]
+    : apiQuestion;
+
+  // Mastery Gate: sonraki soruya geç
+  const handleNextMasteryQuestion = () => {
+    setMasteryQuestionIndex(prev => prev + 1);
+    // NOT: section değişmez, sadece soru yükselir
+  };
+
   const handleLogin = () => { /* AuthContext handles state, useEffect handles redirect */ };
 
   const handleLogout = () => {
@@ -168,9 +208,33 @@ export default function App() {
     setCurrentPage('login');
   };
 
-  const handleSectionSelect = (id: string) => {
+  const handleSectionSelect = async (id: string) => {
     setActiveSectionId(id);
     setActiveQuestionId(null);
+    setConsecutiveCorrect(0);
+    setMasteryQuestionIndex(0);
+    setAdaptiveQuestion(null);
+
+    if (activeFlow.pattern === 'adaptive_branch' && classId) {
+      // Backend'den bu konu için adaptive state'i çek
+      try {
+        const { getAdaptiveState } = await import('./api/flows');
+        const state = await getAdaptiveState(classId, id);
+        if (state.diagnostic_done) {
+          // Tanı tamamlandı → doğrudan atanan yolu uygula
+          setAdaptivePhase(
+            state.assigned_path === 'advanced' ? 'advanced_lesson' : 'intro_lesson',
+          );
+        } else {
+          // Tanı tamamlanmadı → önce diagnostic soruları göster
+          setAdaptivePhase('question_first');
+        }
+      } catch {
+        setAdaptivePhase('question_first');
+      }
+    } else {
+      setAdaptivePhase(null);
+    }
     setCurrentPage('learning');
   };
 
@@ -181,6 +245,13 @@ export default function App() {
 
   const handleNext = () => {
     setActiveQuestionId(null);
+    // Adaptive Branch: lesson bittikten sonra confirmation sorusuna geç
+    if (activeFlow.pattern === 'adaptive_branch' &&
+        (adaptivePhase === 'advanced_lesson' || adaptivePhase === 'intro_lesson')) {
+      setAdaptivePhase('confirmation');
+      setCurrentPage('question');
+      return;
+    }
     setCurrentPage('question');
   };
 
@@ -197,9 +268,15 @@ export default function App() {
       setCurrentPage('problems');
       return;
     }
+    // Adaptive Branch: advanced_lesson göstürme aşamasındaysa next section'a geç
+    setConsecutiveCorrect(0);
+    setMasteryQuestionIndex(0);
+    setAdaptivePhase(null);
     const currentIndex = sections.findIndex(s => s.id === activeSectionId);
     if (currentIndex < sections.length - 1) {
       setActiveSectionId(sections[currentIndex + 1].id);
+      // Yeni section için adaptive phase ayarla
+      if (activeFlow.pattern === 'adaptive_branch') setAdaptivePhase('question_first');
       setCurrentPage('learning');
     } else {
       alert("Congratulations! You've completed all lessons.");
@@ -214,9 +291,49 @@ export default function App() {
    * (1) useMastery refetch — sidebar checkmark ve mastery score anlik guncellenir
    * (2) dashRefreshKey artar — DashboardPage topic mastery listesini yeniden ceker
    */
-  const handleSubmission = (_isCorrect: boolean) => {
+  const handleSubmission = (isCorrect: boolean) => {
     refetchMastery();
     setDashRefreshKey(k => k + 1);
+
+    if (activeFlow.pattern === 'mastery_gate') {
+      setConsecutiveCorrect(prev => isCorrect ? prev + 1 : 0);
+    }
+
+    // Adaptive Branch: cevaba göre ders modu belirle
+    if (activeFlow.pattern === 'adaptive_branch') {
+      if (adaptivePhase === 'question_first' || adaptivePhase === 'confirmation') {
+        // Confirmation aşamasında yanlış → intro_lesson'a geri dön
+        // question_first aşamasında cevaba göre ders belirle
+        if (isCorrect) {
+          if (adaptivePhase === 'confirmation') {
+            // Confirmation doğru → next section
+            handleQuestionComplete();
+          } else {
+            // İlk soruyu doğru → advanced lesson
+            setAdaptiveQuestion(currentQuestion);
+            setAdaptivePhase('advanced_lesson');
+            setTimeout(() => setCurrentPage('learning'), 350);
+          }
+        } else {
+          // Yanlış → intro lesson (hem question_first hem confirmation için)
+          setAdaptiveQuestion(currentQuestion);
+          setAdaptivePhase('intro_lesson');
+          setTimeout(() => setCurrentPage('learning'), 350);
+        }
+
+        // question_first bitti → backend'e bildir (path kalıcı olarak atanır)
+        if (adaptivePhase === 'question_first' && classId && activeSectionId) {
+          import('./api/flows').then(({ completeAdaptiveDiagnostic }) => {
+            completeAdaptiveDiagnostic({
+              class_id:      classId,
+              topic_id:      activeSectionId,
+              correct_count: isCorrect ? 1 : 0,
+              total_count:   1,
+            }).catch(() => {/* sessiz hata */});
+          });
+        }
+      }
+    }
   };
 
   if (currentPage === 'login') {
@@ -226,7 +343,7 @@ export default function App() {
   return (
     <div className="min-h-screen">
       {currentPage === 'dashboard' && (
-        <DashboardPage
+      <DashboardPage
           sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onProblemsClick={() => setCurrentPage('problems')}
@@ -235,12 +352,20 @@ export default function App() {
           onLogout={handleLogout}
           userRole={userRole}
           refreshKey={dashRefreshKey}
+          classId={classId}
+          dueReviews={dueReviews}
+          onReviewStart={(problemId: string) => {
+            // Doğrudan soruya git
+            setActiveQuestionId(problemId);
+            setCurrentPage('question');
+          }}
         />
       )}
 
       {currentPage === 'problems' && (
         <ProblemsPage
           sections={sectionsWithCompletion}
+          classId={classId}
           onProblemSelect={handleProblemSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onLearningClick={() => setCurrentPage('learning')}
@@ -264,16 +389,33 @@ export default function App() {
           userRole={userRole}
           lesson={currentLesson}
           onNext={handleNext}
+          onComplete={handleQuestionComplete}
+          flowPattern={activeFlow.pattern}
+          consecutiveCorrect={consecutiveCorrect}
+          masteryThreshold={activeFlow.config.consecutive_correct ?? 3}
+          adaptivePhase={adaptivePhase}
         />
       )}
 
       {currentPage === 'question' && (
         <QuestionPage
-          question={currentQuestion}
+          key={isMasteryGateActive
+            ? `${activeSectionId}-${masteryQuestionIndex}`
+            : adaptivePhase === 'confirmation'
+              ? `${activeSectionId}-confirm`
+              : activeSectionId}
+          question={adaptivePhase === 'confirmation' && adaptiveQuestion ? adaptiveQuestion : currentQuestion}
           classId={classId}
+          flowPattern={activeFlow.pattern}
+          flowConfig={activeFlow.config}
+          consecutiveCorrect={consecutiveCorrect}
+          adaptivePhase={adaptivePhase}
+          questionNumber={isMasteryGateActive ? masteryQuestionIndex + 1 : undefined}
+          questionsTotal={isMasteryGateActive ? Math.max(topicQuestions.length, masteryThreshold) : undefined}
+          onNextQuestion={isMasteryGateActive ? handleNextMasteryQuestion : undefined}
           onBack={handleBack}
           onComplete={handleQuestionComplete}
-          onSubmission={handleSubmission}   // her submission sonrasi anlik mastery refresh
+          onSubmission={handleSubmission}
         />
       )}
 
@@ -323,6 +465,7 @@ export default function App() {
       {currentPage === 'flow-designer' && (
         <FlowDesignerPage
           sections={sectionsWithCompletion}
+          classId={classId}
           onSectionSelect={handleSectionSelect}
           onDashboardClick={() => setCurrentPage('dashboard')}
           onProblemsClick={() => setCurrentPage('problems')}

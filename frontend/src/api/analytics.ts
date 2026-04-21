@@ -31,15 +31,17 @@ export interface DashboardData {
     role: string;
   };
   class_id: string | null;
+  class_code: string | null;
+  class_name: string | null;
   total_problems_attempted: number;
   total_problems_passed: number;
-  overall_mastery_score: number;    // 0-100 arası genel puan
-  percentile: number;               // 0-100 arası yüzde dilimi
+  overall_mastery_score: number;
+  percentile: number;
   rank: number | null;
   total_students_in_class: number;
-  weak_topics: TopicMastery[];      // En düşük puanlı konular
-  strong_topics: TopicMastery[];    // En yüksek puanlı konular
-  all_topics: TopicMastery[];       // Tüm konuların mastery listesi
+  weak_topics: TopicMastery[];
+  strong_topics: TopicMastery[];
+  all_topics: TopicMastery[];
 }
 
 /** Haftalık ilerleme — grafik için veri noktaları */

@@ -31,7 +31,10 @@ from app.db.session import SessionLocal
 from app.core.security import decode_token
 from app.db.models import User
 
-bearer_scheme = HTTPBearer()
+from typing import Optional
+
+bearer_scheme          = HTTPBearer()
+bearer_scheme_optional = HTTPBearer(auto_error=False)  # Eksik header → None döner
 
 
 def get_db():
@@ -65,3 +68,22 @@ def require_instructor(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in ("instructor", "admin"):
         raise HTTPException(status_code=403, detail="Instructor access required")
     return current_user
+
+
+def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Authorization header olmasa None döner (query-param token için kullanılır)."""
+    if not credentials:
+        return None
+    try:
+        payload = decode_token(credentials.credentials)
+        user_id: str = payload.get("sub")
+        if not user_id:
+            return None
+    except JWTError:
+        return None
+
+    user = db.get(User, user_id)
+    return user if (user and user.is_active) else None

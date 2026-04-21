@@ -23,6 +23,9 @@ export interface ResourceItem {
   week_name:     string | null;
   status:        'uploaded' | 'processing' | 'done' | 'failed';
   error_message: string | null;
+  source_url:    string | null;   // Harici link (YouTube, Drive, web)
+  has_file:      boolean;         // Disk'te PDF var mı?
+  download_url:  string | null;   // /resources/{id}/download
   created_at:    string;
 }
 
@@ -127,9 +130,13 @@ export async function uploadResource(
 }
 
 export async function processResource(
-  resourceId: string
+  resourceId: string,
+  classId?: string,
 ): Promise<{ resource_id: string; status: string; message: string }> {
-  const res = await fetch(`${BASE_URL}/resources/${resourceId}/process`, {
+  const url = classId
+    ? `${BASE_URL}/resources/${resourceId}/process?class_id=${classId}`
+    : `${BASE_URL}/resources/${resourceId}/process`;
+  const res = await fetch(url, {
     method: 'POST', headers: jsonHeaders(),
   });
   if (!res.ok) {
@@ -151,6 +158,34 @@ export async function listResources(): Promise<ResourceItem[]> {
   return res.json();
 }
 
+export async function addResourceLink(body: {
+  source_url: string;
+  title: string;
+  link_type?: string;    // 'pdf' | 'video' | 'link'
+  week_name?: string;
+  class_id?: string;
+}): Promise<{ resource_id: string; title: string; source_url: string; status: string; message: string }> {
+  const form = new FormData();
+  form.append('source_url', body.source_url);
+  form.append('title', body.title);
+  if (body.link_type) form.append('link_type', body.link_type);
+  if (body.week_name)  form.append('week_name', body.week_name);
+  // class_id query param olarak
+  const url = body.class_id
+    ? `${BASE_URL}/resources/link?class_id=${body.class_id}`
+    : `${BASE_URL}/resources/link`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: authHeaders(),   // Content-Type multipart/form-data — browser otomatik ekler
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Link ekleme başarısız: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getResourceContent(resourceId: string): Promise<ExtractedContent> {
   const res = await fetch(`${BASE_URL}/resources/${resourceId}/content`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Content fetch failed: HTTP ${res.status}`);
@@ -159,8 +194,9 @@ export async function getResourceContent(resourceId: string): Promise<ExtractedC
 
 // ── Instructor CRUD — Topics ──────────────────────────────────────────────────
 
-export async function listTopics(): Promise<DbTopic[]> {
-  const r = await fetch(`${BASE_URL}/topics`, { headers: authHeaders() });
+export async function listTopics(classId?: string): Promise<DbTopic[]> {
+  const url = classId ? `${BASE_URL}/topics?class_id=${classId}` : `${BASE_URL}/topics`;
+  const r = await fetch(url, { headers: authHeaders() });
   if (!r.ok) throw new Error(`List topics failed: ${r.status}`);
   return r.json();
 }
@@ -237,7 +273,7 @@ export async function deleteProblem(id: string): Promise<void> {
 
 // ── Instructor CREATE ────────────────────────────────────────────────────────
 
-export async function createTopic(body: { name: string; description?: string }): Promise<DbTopic> {
+export async function createTopic(body: { name: string; description?: string; class_id?: string }): Promise<DbTopic> {
   const r = await fetch(`${BASE_URL}/topics`, {
     method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body),
   });
@@ -271,6 +307,25 @@ export async function createProblem(
     method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`Create problem failed: ${r.status}`);
+  return r.json();
+}
+
+// ── Öğrenci: Kaynak Materyalleri ─────────────────────────────────────────────
+
+export interface TopicResource {
+  resource_id: string;
+  title: string;
+  source_url: string | null;
+  file_type: string;          // 'pdf' | 'video' | 'link'
+  week_name: string | null;
+  has_file: boolean;
+  download_url: string | null;
+}
+
+/** Bir konunun kaynak materyallerini getirir (PDF veya harici link). */
+export async function getTopicResources(topicId: string): Promise<TopicResource[]> {
+  const r = await fetch(`${BASE_URL}/topics/${topicId}/resources`, { headers: authHeaders() });
+  if (!r.ok) return [];
   return r.json();
 }
 

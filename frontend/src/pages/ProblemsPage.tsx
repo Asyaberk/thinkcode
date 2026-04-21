@@ -30,6 +30,7 @@ interface ProblemsPageProps {
   onLogout?: () => void;
   userRole?: UserRole;
   sections: any[];
+  classId?: string;  // Sınıfa göre filtreleme için
 }
 
 export const ProblemsPage: React.FC<ProblemsPageProps> = ({
@@ -41,7 +42,8 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
   onInstructorDashboardClick,
   onLogout,
   userRole,
-  sections
+  sections,
+  classId,
 }) => {
   // ── State ────────────────────────────────────────────────────────────────────
   const [problems, setProblems] = useState<ApiProblem[]>([]);
@@ -60,7 +62,15 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
           getProblems(),
           getSolvedProblemIds().catch(() => new Set<string>()),
         ]);
-        setProblems(data);
+        // Sınıf izolasyonu: sections'dan gelen topic_id'leri kullan
+        // sections zaten class-filtered (useTopics hook'u sayesinde)
+        const validTopicIds = sections.length > 0
+          ? new Set(sections.map((s: any) => s.id))
+          : null;  // null = filtre yok (e.g. instructor)
+        const filtered = validTopicIds
+          ? data.filter(p => validTopicIds.has(p.topic_id))
+          : data;
+        setProblems(filtered);
         setSolvedIds(solved);
       } catch (err) {
         console.error('Problemler yüklenemedi:', err);
@@ -69,7 +79,7 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
       }
     };
     fetchAll();
-  }, []);
+  }, [sections]);
 
   // ── Filtre seçenekleri (dinamik: API'den gelen problemlerden üret) ──────────
   // difficulty: backend'de lowercase ("easy","medium","hard"), frontend'de capitalize

@@ -25,11 +25,16 @@ POST /submissions/{submission_id}/hint
     ai.hint modülü (LangChain + GPT) kademeli hint üretir (level 1,2,3).
     hint_requests tablosuna kayıt eklenir.
 """
+from datetime import datetime, timezone, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_user
-from app.db.models import Submission, Problem, ProblemOption, HintRequest, User, StudentTopicMastery
+from app.db.models import (
+    Submission, Problem, ProblemOption, HintRequest, User, StudentTopicMastery,
+    CourseFlow, SpacedReview,
+)
 from app.schemas import SubmissionCreate, SubmissionOut
 from app.analytics.queries import recompute_mastery
 
@@ -135,9 +140,12 @@ def submit(
     db.flush()  # get submission.id
 
     # ── Mastery upsert via optimized SQL ─────────────────────────────────────
-    # effective_class_id: body.class_id bossa enrollment'dan alindi (satir 26-31)
     if effective_class_id:
         recompute_mastery(db, current_user.id, effective_class_id, problem.topic_id)
+
+    # ── Spaced Retrieval: ilk doğru cevapta review'ları planla ───────────────
+    if submission.is_correct and effective_class_id:
+        _maybe_schedule_spaced_reviews(db, current_user.id, effective_class_id, problem)
 
     db.commit()
     db.refresh(submission)
@@ -145,6 +153,67 @@ def submit(
     result = SubmissionOut.model_validate(submission)
     result.feedback = feedback
     return result
+
+
+def _maybe_schedule_spaced_reviews(
+    db: Session,
+    student_id: str,
+    class_id: str,
+    problem: Problem,
+) -> None:
+    """
+    Spaced Retrieval pattern aktifse ve öğrenci bu topic'te ilk kez doğru cevap
+    verdiyse, review_days config'ine göre SpacedReview kayıtları oluştur.
+    Zaten kayıt varsa (UniqueConstraint) sessizce geç.
+    """
+    active_flow = (
+        db.query(CourseFlow)
+        .filter(CourseFlow.class_id == class_id, CourseFlow.status == "live")
+        .first()
+    )
+    if not active_flow or active_flow.pattern != "spaced_retrieval":
+        return
+
+    review_days = (active_flow.config or {}).get("review_days", [1, 3, 7])
+    now = datetime.now(timezone.utc)
+
+    # Bu topic için daha önce review oluşturulduysa tekrar oluşturma
+    already = db.query(SpacedReview).filter(
+        SpacedReview.student_id == student_id,
+        SpacedReview.topic_id   == problem.topic_id,
+        SpacedReview.class_id   == class_id,
+    ).first()
+    if already:
+        return
+
+    # Konu içindeki farklı soruları review için kullan (varsa)
+    review_problems = (
+        db.query(Problem)
+        .filter(
+            Problem.topic_id    == problem.topic_id,
+            Problem.is_published == True,
+        )
+        .order_by(Problem.created_at)
+        .limit(len(review_days))
+        .all()
+    )
+    # Yeterli soru yoksa mevcut soruyu tekrar kullan
+    while len(review_problems) < len(review_days):
+        review_problems.append(problem)
+
+    for i, day in enumerate(review_days):
+        try:
+            db.add(SpacedReview(
+                student_id   = student_id,
+                class_id     = class_id,
+                topic_id     = problem.topic_id,
+                problem_id   = review_problems[i].id,
+                review_day   = day,
+                scheduled_at = now + timedelta(days=day),
+            ))
+            db.flush()
+        except Exception:
+            db.rollback()  # UniqueConstraint ihlalini yoksay
 
 
 #Çözülmüş soruların ID'leri (sidebar yeşil ✓ için)

@@ -37,7 +37,6 @@ def my_class(
     Login olan instructor'un ilk aktif class'ini döndürür.
     Dönüş: { class_id, class_name, class_code, total_students }
     """
-    # Instructor'a ait ilk aktif class'i bul
     cls = (
         db.query(Class)
         .filter_by(instructor_id=instructor.id, is_active=True)
@@ -47,7 +46,6 @@ def my_class(
     if not cls:
         raise HTTPException(404, "No active class found for this instructor")
 
-    # Kaç öğrenci kayıtlı?
     total_students = (
         db.query(func.count(Enrollment.id))
         .filter_by(class_id=cls.id, status="active")
@@ -62,6 +60,50 @@ def my_class(
         "total_students": total_students,
     }
 
+
+@router.get("/me/classes")
+def my_classes(
+    db: Session = Depends(get_db),
+    instructor: User = Depends(require_instructor),
+):
+    """
+    Login olan instructor'un tüm aktif sınıflarını listeler.
+    Flow Designer'da kurs seçici için kullanılır.
+    Dönüş: [{ class_id, class_name, class_code, total_students, has_live_flow, active_pattern }, ...]
+    """
+    from app.db.models import CourseFlow
+
+    classes = (
+        db.query(Class)
+        .filter_by(instructor_id=instructor.id, is_active=True)
+        .order_by(Class.created_at.asc())
+        .all()
+    )
+
+    result = []
+    for cls in classes:
+        total_students = (
+            db.query(func.count(Enrollment.id))
+            .filter_by(class_id=cls.id, status="active")
+            .scalar() or 0
+        )
+        # Aktif flow var mı?
+        live_flow = (
+            db.query(CourseFlow)
+            .filter_by(class_id=cls.id, status="live")
+            .order_by(CourseFlow.updated_at.desc())
+            .first()
+        )
+        result.append({
+            "class_id": cls.id,
+            "class_name": cls.name,
+            "class_code": cls.code,
+            "semester": cls.semester,
+            "total_students": total_students,
+            "has_live_flow": live_flow is not None,
+            "active_pattern": live_flow.pattern if live_flow else None,
+        })
+    return result
 
 
 @router.get("/{class_id}/dashboard")
@@ -180,10 +222,28 @@ def analyze_and_persist_gaps(
 
     gaps = detect_knowledge_gaps(db, class_id)
     new_gap_count = 0
-    
+
+    # Aktif pedagojik flow bilgisini al
+    from app.db.models import CourseFlow
+    live_flow = (
+        db.query(CourseFlow)
+        .filter(CourseFlow.class_id == class_id, CourseFlow.status == "live")
+        .first()
+    )
+    flow_data = None
+    if live_flow:
+        flow_data = {
+            "pattern": live_flow.pattern,
+            "config": live_flow.config or {},
+        }
+
     ai_summary = None
     if gaps:
-        ai_summary = analyze_class_gaps_sync(class_name=cls.name, gaps_data=gaps)
+        ai_summary = analyze_class_gaps_sync(
+            class_name=cls.name,
+            gaps_data=gaps,
+            flow_data=flow_data,
+        )
 
     for g in gaps:
         existing = (

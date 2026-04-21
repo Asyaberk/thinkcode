@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     GLM_OCR_API_URL: str = "http://173.249.57.83:7003/v1/chat/completions"
     GLM_OCR_TOKEN: str = ""
 
+    # MinIO — PDF kalıcı depolama (Mert'in s3.iotiq.dev sunucusu)
+    MINIO_ENDPOINT:    str  = "s3.iotiq.dev"
+    MINIO_ACCESS_KEY:  str  = ""
+    MINIO_SECRET_KEY:  str  = ""
+    MINIO_BUCKET_NAME: str  = "thinkcode"
+    MINIO_SECURE:      bool = True
+
     model_config = SettingsConfigDict(
         env_file="../.env",
         env_file_encoding="utf-8",

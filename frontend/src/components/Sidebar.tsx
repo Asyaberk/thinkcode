@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Circle, ChevronRight, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch } from 'lucide-react';
+import { CheckCircle2, Circle, ChevronRight, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch, Lock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Section, UserRole } from '../types';
 import { cn } from '../lib/utils';
@@ -16,8 +16,12 @@ interface SidebarProps {
   onFlowDesignerClick?: () => void;
   onLogout?: () => void;
   userRole?: UserRole;
-  /** Tamamlanan ders oranı 0-100 (isCompleted olan section sayısından hesapla) */
+  /** Tamamlanan ders oranı 0-100 */
   progressPercent?: number;
+  /** Flow'un kilitlediği section ID'leri — kilitli section'lar gri + lock ikonu gösterir */
+  lockedSectionIds?: Set<string>;
+  /** Aktif flow pattern — lock tooltip mesajı için */
+  flowPattern?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -32,17 +36,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onFlowDesignerClick,
   onLogout,
   userRole,
-  progressPercent = 0,   // varsayilan 0
+  progressPercent = 0,
+  lockedSectionIds = new Set(),
+  flowPattern,
 }) => {
   const isInstructor = userRole === 'Instructor';
 
   return (
-    <aside className="w-72 border-r border-slate-800 bg-[#0f172a] h-full flex flex-col fixed left-0 top-0 z-20 overflow-hidden">
+    <aside className="w-72 border-r border-slate-800 bg-[#0b1222] h-full flex flex-col fixed left-0 top-0 z-20 overflow-hidden">
       <div className="p-8 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-base shadow-lg shadow-emerald-500/20 shrink-0">
-            T
-          </div>
+          <img
+            src="/thinkcode_logo.png"
+            alt="ThinkCode Logo"
+            className="h-9 w-auto object-contain shrink-0"
+          />
           <div className="leading-none">
             <span className="text-[17px] font-light text-slate-300 tracking-tight">Think</span><span className="text-[17px] font-bold text-emerald-400 tracking-tight">Code</span>
           </div>
@@ -156,28 +164,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                     </div>
                   );
-                  // Yalnizca "Fundamentals" parent'i kendi dersini de goster
-                  const itemList = section.title === 'Fundamentals' ? [section, ...children] : children;
+                  // Yalnizca child'lar listelenir, parent başlık olarak gösterildi
+                  const itemList = children;
                   itemList.forEach(child => {
+                    const isLocked = lockedSectionIds.has(child.id);
                     rendered.push(
                       <button
                         key={child.id}
-                        onClick={() => onSectionSelect(child.id)}
+                        onClick={() => !isLocked && onSectionSelect(child.id)}
+                        title={isLocked ? 'Bu bölüm kilitli — önce aktif bölümü tamamla' : undefined}
                         className={cn(
                           "w-full flex items-center justify-between py-2 pl-6 pr-3 rounded-xl text-xs font-medium transition-all duration-200 group relative",
-                          activeSectionId === child.id
-                            ? "bg-slate-800/50 text-white"
-                            : "text-slate-400 hover:text-white hover:bg-slate-800/30"
+                          isLocked
+                            ? "opacity-40 cursor-not-allowed"
+                            : activeSectionId === child.id
+                              ? "bg-slate-800/50 text-white"
+                              : "text-slate-400 hover:text-white hover:bg-slate-800/30"
                         )}
                       >
-                        {activeSectionId === child.id && (
+                        {activeSectionId === child.id && !isLocked && (
                           <motion.div
                             layoutId="sidebar-active"
                             className="absolute left-0 w-1 h-5 bg-emerald-500 rounded-r-full"
                           />
                         )}
                         <div className="flex items-center gap-2.5">
-                          {child.isCompleted ? (
+                          {isLocked ? (
+                            <Lock size={14} className="text-slate-600 shrink-0" />
+                          ) : child.isCompleted ? (
                             <CheckCircle2 size={14} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
                           ) : (
                             <Circle size={14} className="text-slate-700 shrink-0" strokeWidth={2} />
@@ -189,59 +203,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             {child.title}
                           </span>
                         </div>
-                        <ChevronRight
-                          size={12}
-                          className={cn(
-                            "shrink-0 transition-all duration-300",
-                            activeSectionId === child.id ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100"
-                          )}
-                        />
+                        {!isLocked && (
+                          <ChevronRight
+                            size={12}
+                            className={cn(
+                              "shrink-0 transition-all duration-300",
+                              activeSectionId === child.id ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100"
+                            )}
+                          />
+                        )}
+                        {isLocked && <Lock size={10} className="text-slate-600 shrink-0" />}
                       </button>
                     );
                   });
-                  lastWasParent = true;
-                } else {
-                  // Tek basina duran konu (Fundamentals, Dynamic Programming vs.)
-                  rendered.push(
-                    <button
-                      key={section.id}
-                      onClick={() => onSectionSelect(section.id)}
-                      className={cn(
-                        "w-full flex items-center justify-between p-3 rounded-xl text-sm font-medium transition-all duration-200 group relative",
-                        activeSectionId === section.id
-                          ? "bg-slate-800/50 text-white"
-                          : "text-slate-400 hover:text-white hover:bg-slate-800/30"
-                      )}
-                    >
-                      {activeSectionId === section.id && (
-                        <motion.div
-                          layoutId="sidebar-active"
-                          className="absolute left-0 w-1 h-6 bg-emerald-500 rounded-r-full"
-                        />
-                      )}
-                      <div className="flex items-center gap-3">
-                        {section.isCompleted ? (
-                          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
-                        ) : (
-                          <Circle size={16} className="text-slate-700 shrink-0" strokeWidth={2} />
-                        )}
-                        <span className={cn(
-                          "transition-colors",
-                          activeSectionId === section.id ? "font-semibold" : "font-medium"
-                        )}>
-                          {section.title}
-                        </span>
-                      </div>
-                      <ChevronRight
-                        size={14}
-                        className={cn(
-                          "shrink-0 transition-all duration-300",
-                          activeSectionId === section.id ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100"
-                        )}
-                      />
-                    </button>
-                  );
-                  lastWasParent = false;
                 }
               });
 

@@ -3,6 +3,9 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 python-multipart==0.0.12
 
+# ── Object Storage ───────────────────────────────────────────────────────────
+minio>=7.2.0
+
 # ── Database ─────────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]==2.0.36
 psycopg2-binary==2.9.10
@@ -34,3 +37,7 @@ requests==2.32.3
 pdfplumber==0.11.4
 pdf2image==1.17.0
 Pillow==11.2.1
+
+# ── Link / Video Extraction ───────────────────────────────────────────────────
+# yt-dlp: YouTube ve diğer video sitelerinden ses indirir (Whisper transkript için)
+yt-dlp>=2024.3.10

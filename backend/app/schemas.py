@@ -66,6 +66,8 @@ class TopicOut(BaseModel):
     book_url: Optional[str]
     display_order: int
     parent_topic_id: Optional[str]
+    lesson_count: int = 0    # Kac lesson var (sidebar icon icin)
+    problem_count: int = 0   # Kac soru var
 
     class Config:
         from_attributes = True
@@ -152,8 +154,8 @@ class ProblemListOut(BaseModel):
     correct_answer: Optional[str] = None
     # explanation: grading_rubric'ten otomatik doldurulur — QuestionPage icin gosterilecek
     explanation: Optional[str] = None
-    # MCQ secenekleri — problem_options tablosundan gelir
-    options: list[OptionOut] = []
+    # MCQ seçenekleri — is_correct dahil (frontend doğru cevap belirleme için gerekli)
+    options: list[OptionInstructorOut] = []
 
     class Config:
         from_attributes = True
@@ -230,6 +232,7 @@ class TutorChatResponse(BaseModel):
 class TopicCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    class_id: Optional[str] = None
 
 class LessonCreate(BaseModel):
     title: str

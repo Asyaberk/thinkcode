@@ -86,7 +86,7 @@ class Class(Base):
     id            = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     instructor_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     name          = Column(String(255), nullable=False)
-    code          = Column(String(50), unique=True, nullable=False)     # e.g. "COS226-F2025"
+    code          = Column(String(50), unique=True, nullable=False)     # e.g. "CMPE211"
     semester      = Column(String(50))
     academic_year = Column(Integer)
     is_active     = Column(Boolean, nullable=False, default=True)
@@ -121,10 +121,14 @@ class Topic(Base):
     id              = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     name            = Column(String(255), nullable=False)
     description     = Column(Text)
-    book_chapter    = Column(String(100))    # e.g. "Chapter 2: Sorting"
-    book_url        = Column(String(500))    # Princeton book URL
+    book_chapter    = Column(String(100))
+    book_url        = Column(String(500))
     display_order   = Column(Integer, nullable=False, default=0)
     parent_topic_id = Column(UUID(as_uuid=False), ForeignKey("topics.id", ondelete="SET NULL"))
+    # Sınıfa özel konu: null = tüm sınıflara ait (global/legacy), dolu = sadece o sınıf
+    class_id        = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"), nullable=True)
+    # Hangi kaynaktan (PDF/video) üretildi — öğrenci "kaynağa git" için
+    source_resource_id = Column(UUID(as_uuid=False), ForeignKey("course_resources.id", ondelete="SET NULL"), nullable=True)
 
     children      = relationship("Topic", back_populates="parent")
     parent        = relationship("Topic", back_populates="children", remote_side="Topic.id")
@@ -132,6 +136,7 @@ class Topic(Base):
     problems      = relationship("Problem", back_populates="topic")
     topic_mastery = relationship("StudentTopicMastery", back_populates="topic")
     knowledge_gaps= relationship("KnowledgeGap", back_populates="topic")
+    source_resource = relationship("CourseResource", foreign_keys=[source_resource_id])
 
 
 class Lesson(Base):
@@ -569,3 +574,79 @@ class CourseFlow(Base):
 
 Index("idx_flows_class",   CourseFlow.class_id)
 Index("idx_flows_status",  CourseFlow.class_id, CourseFlow.status)
+
+
+# ─────────────────────────────────────────────────────────────
+# SPACED RETRIEVAL — Zamanlanmış Tekrar Sistemi
+#
+# Öğrenci bir konuyu ilk geçtiğinde (is_correct=True + spaced_retrieval flow),
+# review_days config'ine göre (ör. [1,3,7]) otomatik review kayıtları oluşur.
+# GET /flows/spaced-reviews  → bugün vadesi gelen review'ları döner.
+# ─────────────────────────────────────────────────────────────
+
+class SpacedReview(Base):
+    """
+    Spaced Retrieval pattern için otomatik oluşturulan tekrar kaydı.
+    Öğrenci bir konuyu geçince 1/3/7. gün için problem ataması yapılır.
+    """
+    __tablename__ = "spaced_reviews"
+    __table_args__ = (
+        UniqueConstraint("student_id", "topic_id", "class_id", "review_day"),
+    )
+
+    id           = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    student_id   = Column(UUID(as_uuid=False), ForeignKey("users.id",   ondelete="CASCADE"),   nullable=False)
+    class_id     = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"),   nullable=False)
+    topic_id     = Column(UUID(as_uuid=False), ForeignKey("topics.id",  ondelete="CASCADE"),   nullable=False)
+    problem_id   = Column(UUID(as_uuid=False), ForeignKey("problems.id",ondelete="SET NULL"))
+    review_day   = Column(Integer, nullable=False)           # 1 | 3 | 7
+    scheduled_at = Column(DateTime(timezone=True), nullable=False)
+    completed    = Column(Boolean, nullable=False, default=False)
+    completed_at = Column(DateTime(timezone=True))
+    is_correct   = Column(Boolean)
+    created_at   = Column(DateTime(timezone=True), default=_now)
+
+    student = relationship("User",    foreign_keys=[student_id])
+    topic   = relationship("Topic",   foreign_keys=[topic_id])
+    problem = relationship("Problem", foreign_keys=[problem_id])
+
+
+Index("idx_spaced_reviews_student_class", SpacedReview.student_id, SpacedReview.class_id)
+Index("idx_spaced_reviews_scheduled",     SpacedReview.scheduled_at, SpacedReview.completed)
+
+
+# ─────────────────────────────────────────────────────────────
+# ADAPTIVE BRANCH — Tanı Testi ve Yol Ataması
+#
+# Öğrenci bir konuyu açtığında GET /flows/adaptive-state kontrol edilir.
+#   diagnostic_done=False  → frontend 3 tanı sorusu gösterir
+#   diagnostic_done=True   → assigned_path ('basic'|'advanced') kullanılır
+# POST /flows/adaptive-complete → skoru hesaplar, path atar.
+# ─────────────────────────────────────────────────────────────
+
+class AdaptiveBranchState(Base):
+    """
+    Adaptive Branch pattern: öğrencinin konu başındaki tanı testi sonucu
+    ve atanan öğrenme yolu (basic / advanced).
+    """
+    __tablename__ = "adaptive_branch_states"
+    __table_args__ = (
+        UniqueConstraint("student_id", "class_id", "topic_id"),
+    )
+
+    id                = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    student_id        = Column(UUID(as_uuid=False), ForeignKey("users.id",   ondelete="CASCADE"), nullable=False)
+    class_id          = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    topic_id          = Column(UUID(as_uuid=False), ForeignKey("topics.id",  ondelete="CASCADE"), nullable=False)
+    diagnostic_score  = Column(Float)              # 0-100
+    assigned_path     = Column(String(20))         # 'basic' | 'advanced'
+    diagnostic_done   = Column(Boolean, nullable=False, default=False)
+    problems_answered = Column(Integer, default=0)
+    created_at        = Column(DateTime(timezone=True), default=_now)
+    updated_at        = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    student = relationship("User",  foreign_keys=[student_id])
+    topic   = relationship("Topic", foreign_keys=[topic_id])
+
+
+Index("idx_adaptive_state_student", AdaptiveBranchState.student_id, AdaptiveBranchState.class_id)

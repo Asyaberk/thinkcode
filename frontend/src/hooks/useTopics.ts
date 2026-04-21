@@ -4,35 +4,33 @@ import type { Topic, Section } from '../types';
 
 interface UseTopicsResult {
   topics: Topic[];
-  sections: Section[];  // UI'ya uyumlu Section formatı
+  sections: Section[];
   isLoading: boolean;
   error: string | null;
 }
 
-/**
- * Converts flat Topic list to nested display.
- * Only parent topics (no parent_topic_id) are shown as top-level sections.
- * Sub-topics are included with indented titles.
- */
 function topicsToSections(topics: Topic[]): Section[] {
   return topics.map(t => ({
     id: t.id,
     title: t.name,
-    isCompleted: false,              // App.tsx topicMasteryMap ile override edilir
-    parentId: t.parent_topic_id,     // Sidebar hiyerarşisi için
+    isCompleted: false,           // App.tsx topicMasteryMap ile override edilir
+    parentId: t.parent_topic_id,  // Sidebar hiyerarşisi için
   }));
 }
 
-
-export function useTopics(): UseTopicsResult {
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * classId verilirse sadece o sınıfın konularını (+ global) döner.
+ * Instructor sayfaları classId olmadan tüm konuları görebilir.
+ */
+export function useTopics(classId?: string | null): UseTopicsResult {
+  const [topics, setTopics]     = useState<Topic[]>([]);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError]       = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    getTopics()
+    setLoading(true);
+    getTopics(classId ?? undefined)
       .then(data => {
         if (!cancelled) {
           setTopics(data);
@@ -43,10 +41,10 @@ export function useTopics(): UseTopicsResult {
         if (!cancelled) setError(err.message ?? 'Failed to load topics');
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [classId]);
 
   const sections = topicsToSections(topics);
   return { topics, sections, isLoading, error };

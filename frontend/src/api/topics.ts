@@ -9,8 +9,9 @@
 import { api } from './client';
 import type { Topic, ApiLesson } from '../types';
 
-export async function getTopics(): Promise<Topic[]> {
-  return api.get<Topic[]>('/topics');
+export async function getTopics(classId?: string): Promise<Topic[]> {
+  const qs = classId ? `?class_id=${classId}` : '';
+  return api.get<Topic[]>(`/topics${qs}`);
 }
 
 export async function getTopic(topicId: string): Promise<Topic> {

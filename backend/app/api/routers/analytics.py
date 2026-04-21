@@ -201,6 +201,14 @@ def my_dashboard(
             for row in diff_rows
         ]
 
+    # Class bilgisi — öğrenci hangi sınıfta?
+    class_info = {"class_code": None, "class_name": None}
+    if class_id:
+        from app.db.models import Class as ClassModel
+        cls = db.get(ClassModel, class_id)
+        if cls:
+            class_info = {"class_code": cls.code, "class_name": cls.name}
+
     return {
         "user": {
             "id": current_user.id,
@@ -210,6 +218,8 @@ def my_dashboard(
             "role": current_user.role,
         },
         "class_id": class_id,
+        "class_code": class_info["class_code"],
+        "class_name": class_info["class_name"],
         "total_problems_attempted": len(subs),
         "total_problems_passed": sum(1 for s in subs if s.is_correct),
         "overall_mastery_score": round(overall, 2),

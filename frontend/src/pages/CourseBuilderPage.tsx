@@ -4,13 +4,14 @@ import {
   Plus, Save, Send, Upload, FileText, Video, Trash2, Edit3,
   Sparkles, Layers, RefreshCw, ArrowRight, FileAudio, Check,
   AlertCircle, Loader2, X, BookOpen, HelpCircle, CheckCircle2,
-  Circle, Clock
+  Circle, Clock, Link, Globe, ExternalLink
 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { Section, UserRole } from '../types';
 import { cn } from '../lib/utils';
 import {
   uploadResource, processResource, listResources, pollResult,
+  addResourceLink,
   listTopics, getTopicLessons, getTopicProblems,
   updateTopic, deleteTopic,
   updateLesson, deleteLesson,
@@ -194,10 +195,11 @@ const EditProblemModal: React.FC<EditProblemModalProps> = ({ problem, onClose, o
 interface AddModalProps {
   tab: Tab;
   topics: DbTopic[];
+  classId: string;
   onClose: () => void;
   onSaved: () => void;
 }
-const AddModal: React.FC<AddModalProps> = ({ tab, topics, onClose, onSaved }) => {
+const AddModal: React.FC<AddModalProps> = ({ tab, topics, classId, onClose, onSaved }) => {
   const [topicId, setTopicId] = useState(topics[0]?.id || '');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -210,7 +212,7 @@ const AddModal: React.FC<AddModalProps> = ({ tab, topics, onClose, onSaved }) =>
     setSaving(true); setError('');
     try {
       if (tab === 'Topics') {
-        await createTopic({ name: title.trim(), description: desc.trim() || undefined });
+        await createTopic({ name: title.trim(), description: desc.trim() || undefined, class_id: classId || undefined });
       } else if (tab === 'Lessons') {
         if (!topicId) { setError('Select a topic.'); setSaving(false); return; }
         await createLesson(topicId, { title: title.trim(), summary: desc.trim() || undefined });
@@ -414,6 +416,10 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   const [isExtracting, setIsExtracting] = useState(false);
   const [weekName, setWeekName] = useState('');
 
+  // Sınıf seçimi — Instructor hangi sınıf için içerik yükleyecek
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [availableClasses, setAvailableClasses] = useState<{id: string; code: string; name: string}[]>([]);
+
   // Modal states
   const [editingTopic, setEditingTopic] = useState<DbTopic | null>(null);
   const [editingLesson, setEditingLesson] = useState<DbLesson | null>(null);
@@ -426,6 +432,15 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  // Link sekmesi state
+  const [uploadTab, setUploadTab] = useState<'file' | 'link'>('file');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkType, setLinkType] = useState<'link' | 'video' | 'pdf'>('link');
+  const [linkWeekName, setLinkWeekName] = useState('');
+  const [linkAdding, setLinkAdding] = useState(false);
+  const [linkError, setLinkError] = useState('');
+  const [linkSuccess, setLinkSuccess] = useState('');
 
   // Content
   const [topics, setTopics] = useState<DbTopic[]>([]);
@@ -433,11 +448,25 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   const [problems, setProblems] = useState<DbProblem[]>([]);
   const [contentLoading, setContentLoading] = useState(false);
 
+  // Sınıfları yükle
+  useEffect(() => {
+    const loadClasses = async () => {
+      try {
+        const { api } = await import('../api/client');
+        const classes = await api.get<{class_id: string; class_code: string; class_name: string}[]>('/instructor/me/classes');
+        const mapped = classes.map(c => ({ id: c.class_id, code: c.class_code, name: c.class_name }));
+        setAvailableClasses(mapped);
+        if (mapped.length > 0) setSelectedClassId(mapped[0].id);
+      } catch { /* instructor without classes */ }
+    };
+    loadClasses();
+  }, []);
+
   useEffect(() => {
     loadFiles();
     loadAllContent();
     return () => { Object.values(pollingRefs.current).forEach(clearInterval); };
-  }, []);
+  }, [selectedClassId]);
 
   const loadFiles = async () => {
     try {
@@ -450,7 +479,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   const loadAllContent = async () => {
     setContentLoading(true);
     try {
-      const dbTopics = await listTopics();
+      const dbTopics = await listTopics(selectedClassId || undefined);
       setTopics(dbTopics);
       if (dbTopics.length > 0) {
         const allLessons: DbLesson[] = [];
@@ -482,16 +511,53 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         resource_id: result.resource_id, filename: file.name,
         file_type: file.name.split('.').pop() || 'pdf',
         week_name: weekName.trim() || null, status: 'uploaded',
-        error_message: null, created_at: new Date().toISOString(),
+        error_message: null,
+        source_url: null,
+        has_file: true,
+        download_url: `/resources/${result.resource_id}/download`,
+        created_at: new Date().toISOString(),
       }, ...prev]);
       try {
-        await processResource(result.resource_id);
+        await processResource(result.resource_id, selectedClassId || undefined);
         setFiles(prev => prev.map(f => f.resource_id === result.resource_id ? { ...f, status: 'processing' } : f));
         startPolling(result.resource_id);
       } catch { /* already processing */ }
     } catch (err: any) { setUploadError(err.message || 'Upload failed'); }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleAddLink = async () => {
+    if (!linkUrl.trim() || !linkTitle.trim()) {
+      setLinkError('URL ve başlık zorunludur.');
+      return;
+    }
+    setLinkAdding(true); setLinkError(''); setLinkSuccess('');
+    try {
+      const result = await addResourceLink({
+        source_url: linkUrl.trim(),
+        title: linkTitle.trim(),
+        link_type: linkType,
+        week_name: linkWeekName.trim() || undefined,
+        class_id: selectedClassId || undefined,
+      });
+      setFiles(prev => [{
+        resource_id: result.resource_id,
+        filename: linkTitle.trim(),
+        file_type: linkType,
+        week_name: linkWeekName.trim() || null,
+        status: 'done',
+        error_message: null,
+        created_at: new Date().toISOString(),
+        source_url: result.source_url,
+      } as any, ...prev]);
+      setLinkSuccess('Link başarıyla eklendi!');
+      setLinkUrl(''); setLinkTitle(''); setLinkWeekName('');
+      setTimeout(() => setLinkSuccess(''), 3000);
+    } catch (err: any) {
+      setLinkError(err.message || 'Link eklenemedi.');
+    }
+    setLinkAdding(false);
   };
 
   const startPolling = (resourceId: string) => {
@@ -516,7 +582,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
     setIsExtracting(true);
     for (const f of pending) {
       try {
-        await processResource(f.resource_id);
+        await processResource(f.resource_id, selectedClassId || undefined);
         setFiles(prev => prev.map(r => r.resource_id === f.resource_id ? { ...r, status: 'processing' } : r));
         startPolling(f.resource_id);
       } catch { /* ignore */ }
@@ -579,7 +645,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         />
       )}
       {showAddModal && (
-        <AddModal tab={activeTab} topics={topics} onClose={() => setShowAddModal(false)} onSaved={loadAllContent} />
+        <AddModal tab={activeTab} topics={topics} classId={selectedClassId} onClose={() => setShowAddModal(false)} onSaved={loadAllContent} />
       )}
 
       <Sidebar
@@ -598,11 +664,32 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
           <div>
             <h1 className="text-xl font-bold text-white">Course Builder</h1>
             <p className="text-xs text-slate-500">
-              {weekName || 'Algorithms & Data Structures'}
+              {weekName || 'Upload and manage course content'}
               {processingCount > 0 && <span className="ml-2 text-amber-500">· processing {processingCount} file{processingCount > 1 ? 's' : ''}…</span>}
             </p>
           </div>
-
+          {/* Sınıf seçici */}
+          {availableClasses.length > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Class:</span>
+              <div className="flex gap-2">
+                {availableClasses.map(cls => (
+                  <button
+                    key={cls.id}
+                    onClick={() => setSelectedClassId(cls.id)}
+                    className={cn(
+                      'px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all border',
+                      selectedClassId === cls.id
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:text-slate-300'
+                    )}
+                  >
+                    {cls.code}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Body */}
@@ -617,51 +704,165 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
               </div>
 
               <div className="flex flex-col flex-1 min-h-0 space-y-4">
-                <div className="shrink-0">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Module Label</label>
-                  <input type="text" value={weekName} onChange={e => setWeekName(e.target.value)}
-                    placeholder="e.g. Week 4: C++ Pointers"
-                    className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
-                  />
+                {/* Sekme seçici */}
+                <div className="flex bg-[#0f1623] rounded-xl p-1 shrink-0">
+                  <button
+                    onClick={() => setUploadTab('file')}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all',
+                      uploadTab === 'file' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'
+                    )}
+                  >
+                    <Upload size={13} /> PDF / Dosya
+                  </button>
+                  <button
+                    onClick={() => setUploadTab('link')}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all',
+                      uploadTab === 'link' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'
+                    )}
+                  >
+                    <Link size={13} /> Link Ekle
+                  </button>
                 </div>
 
-                <label htmlFor="cb-file-upload" className={cn(
-                  'border-2 border-dashed border-slate-800 rounded-2xl p-6 text-center',
-                  'hover:border-[#00e5a0]/50 transition-all group cursor-pointer bg-[#0f1623]/50 shrink-0',
-                  uploading && 'opacity-60 pointer-events-none'
-                )}>
-                  <input id="cb-file-upload" ref={fileInputRef} type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.cpp,.h,.py"
-                    className="hidden" onChange={handleFileChange} disabled={uploading} />
-                  <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3 text-slate-500 group-hover:text-[#00e5a0] transition-colors">
-                    {uploading ? <Loader2 size={24} className="animate-spin text-[#00e5a0]" /> : <Upload size={24} />}
+                {uploadTab === 'file' ? (
+                  <>
+                    <div className="shrink-0">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Module Label</label>
+                      <input type="text" value={weekName} onChange={e => setWeekName(e.target.value)}
+                        placeholder="e.g. Week 4: C++ Pointers"
+                        className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                      />
+                    </div>
+                    <label htmlFor="cb-file-upload" className={cn(
+                      'border-2 border-dashed border-slate-800 rounded-2xl p-6 text-center',
+                      'hover:border-[#00e5a0]/50 transition-all group cursor-pointer bg-[#0f1623]/50 shrink-0',
+                      uploading && 'opacity-60 pointer-events-none'
+                    )}>
+                      <input id="cb-file-upload" ref={fileInputRef} type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.cpp,.h,.py"
+                        className="hidden" onChange={handleFileChange} disabled={uploading} />
+                      <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3 text-slate-500 group-hover:text-[#00e5a0] transition-colors">
+                        {uploading ? <Loader2 size={24} className="animate-spin text-[#00e5a0]" /> : <Upload size={24} />}
+                      </div>
+                      <p className="text-xs font-bold text-white mb-1">{uploading ? 'Uploading & processing…' : 'Upload Materials'}</p>
+                      <p className="text-[10px] text-slate-500">PDF, MD, TXT, PNG, JPG, CPP</p>
+                    </label>
+                    {uploadError && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-3 py-2 shrink-0">{uploadError}</div>}
+                  </>
+                ) : (
+                  /* Link sekmesi */
+                  <div className="space-y-3 shrink-0">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">URL *</label>
+                      <input type="url" value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+                        placeholder="https://youtube.com/watch?v=... veya Google Drive linki"
+                        className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Başlık *</label>
+                      <input type="text" value={linkTitle} onChange={e => setLinkTitle(e.target.value)}
+                        placeholder="Ders Videosu — Hafta 3"
+                        className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Tür</label>
+                        <select value={linkType} onChange={e => setLinkType(e.target.value as any)}
+                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none">
+                          <option value="link">🔗 Web Linki</option>
+                          <option value="video">🎬 Video</option>
+                          <option value="pdf">📄 PDF Linki</option>
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Modül (opsiyonel)</label>
+                        <input type="text" value={linkWeekName} onChange={e => setLinkWeekName(e.target.value)}
+                          placeholder="Week 3"
+                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                        />
+                      </div>
+                    </div>
+                    {linkError && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{linkError}</div>}
+                    {linkSuccess && <div className="text-[10px] text-emerald-400 bg-emerald-500/10 rounded-lg px-3 py-2 flex items-center gap-1"><Check size={12}/>{linkSuccess}</div>}
+                    <button onClick={handleAddLink} disabled={linkAdding || !linkUrl.trim() || !linkTitle.trim()}
+                      className="w-full py-3 bg-[#00e5a0]/10 hover:bg-[#00e5a0]/20 border border-[#00e5a0]/30 text-[#00e5a0] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+                      {linkAdding ? <><Loader2 size={14} className="animate-spin" />Ekleniyor…</> : <><Globe size={14} />Link Ekle</>}
+                    </button>
                   </div>
-                  <p className="text-xs font-bold text-white mb-1">{uploading ? 'Uploading & processing…' : 'Upload Materials'}</p>
-                  <p className="text-[10px] text-slate-500">PDF, MD, TXT, PNG, JPG, CPP</p>
-                </label>
-
-                {uploadError && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-3 py-2 shrink-0">{uploadError}</div>}
+                )}
 
                 <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
-                  {files.length === 0 && <p className="text-[11px] text-slate-600 text-center pt-6">No files yet. Upload a PDF to get started.</p>}
-                  {files.map(file => (
-                    <div key={file.resource_id} className="bg-[#0f1623] border border-slate-800 p-3 rounded-xl flex items-center justify-between group hover:border-slate-700 transition-all">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center text-slate-400 shrink-0">{fileIcon(file.file_type)}</div>
-                        <div className="overflow-hidden">
-                          <p className="text-xs font-bold text-slate-200 truncate max-w-[160px]">{file.filename}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <StatusBadge status={file.status} />
-                            {file.week_name && <span className="text-[9px] text-slate-600">{file.week_name}</span>}
+                  {files.length === 0 && <p className="text-[11px] text-slate-600 text-center pt-6">Henüz kaynak yok. PDF yükle veya link ekle.</p>}
+
+                  {/* Aynı modül label'ı olanları grupla */}
+                  {(() => {
+                    let lastWeek = '__INIT__';
+                    return files.map(file => {
+                      const showHeader = file.week_name !== lastWeek;
+                      lastWeek = file.week_name ?? null as any;
+                      const jwtToken = localStorage.getItem('access_token') ?? '';
+                      const href = file.has_file && file.download_url
+                        ? `${file.download_url}${jwtToken ? `?token=${jwtToken}` : ''}`
+                        : file.source_url ?? null;
+                      return (
+                        <div key={file.resource_id}>
+                          {showHeader && file.week_name && (
+                            <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-1 pt-2 pb-1">
+                              📁 {file.week_name}
+                            </p>
+                          )}
+                          <div className="bg-[#0f1623] border border-slate-800 p-3 rounded-xl flex items-center justify-between group hover:border-slate-700 transition-all">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center text-slate-400 shrink-0">{fileIcon(file.file_type)}</div>
+                              <div className="overflow-hidden">
+                                <p className="text-xs font-bold text-slate-200 truncate max-w-[140px]">{file.filename}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <StatusBadge status={file.status} />
+                                  {!file.week_name && <span className="text-[9px] text-slate-700">modül yok</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {/* Aç butonu — PDF veya link */}
+                              {href && file.status === 'done' && (
+                                <a href={href} target="_blank" rel="noopener noreferrer"
+                                  className="p-1.5 text-slate-500 hover:text-[#00e5a0] transition-colors"
+                                  title={file.has_file ? 'PDF\'yi Aç' : 'Linki Aç'}>
+                                  {file.has_file ? <FileText size={13} /> : <ExternalLink size={13} />}
+                                </a>
+                              )}
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`"${file.filename || file.title}" silinsin mi?`)) return;
+                                  try {
+                                    const token = localStorage.getItem('access_token') ?? '';
+                                    const res = await fetch(
+                                      `/api/v1/resources/${file.resource_id}`,
+                                      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+                                    );
+                                    if (res.ok || res.status === 204) {
+                                      setFiles(prev => prev.filter(f => f.resource_id !== file.resource_id));
+                                    } else {
+                                      alert('Silme başarısız: ' + res.status);
+                                    }
+                                  } catch {
+                                    alert('Bağlantı hatası — kaynak silinemedi.');
+                                  }
+                                }}
+                                className="p-1.5 text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                title="Sil">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <button onClick={() => setFiles(prev => prev.filter(f => f.resource_id !== file.resource_id))}
-                        className="p-1.5 text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+                      );
+                    });
+                  })()}
                 </div>
 
                 <button onClick={handleExtract} disabled={isExtracting || pendingCount === 0}

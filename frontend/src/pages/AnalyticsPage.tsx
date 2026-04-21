@@ -59,7 +59,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
   onProblemsClick,
   onInstructorDashboardClick,
   onLogout,
-  userRole
+  userRole,
 }) => {
   // ── State — tasarım değişmedi, sadece data kaynağı backend'e taşındı ──────
   const [aiInsight, setAiInsight] = useState<string>("Analyzing your performance data...");
@@ -86,6 +86,9 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
   const [insightRank, setInsightRank] = useState<number | null>(null);
   const [insightPercentile, setInsightPercentile] = useState<number | null>(null);
   const [insightTotalStudents, setInsightTotalStudents] = useState<number>(0);
+  // Sınıf badge verileri
+  const [classCode, setClassCode] = useState<string | undefined>(undefined);
+  const [classNameStr, setClassNameStr] = useState<string | undefined>(undefined);
 
   // ── API'den veri çek — tasarım hiç değişmedi ─────────────────────────────
   useEffect(() => {
@@ -126,6 +129,9 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
           setTopPerformerScore(cs.top_performer_score != null ? Math.round(cs.top_performer_score) : null);
           setAvgHintUsage(cs.avg_hint_usage != null ? cs.avg_hint_usage : null);
         }
+        // Sınıf badge
+        if (dashboard.class_code) setClassCode(dashboard.class_code);
+        if (dashboard.class_name) setClassNameStr(dashboard.class_name);
         // Sınıf zorluk analizi
         if (dashboard.class_difficulty && dashboard.class_difficulty.length > 0) {
           setClassDifficultyData(dashboard.class_difficulty);
@@ -219,7 +225,19 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
             >
               Learning <span className="text-emerald-500 italic font-serif">Analytics</span>
             </motion.h1>
-            <p className="text-slate-400 font-medium">Deep dive into your progress and performance.</p>
+            <div className="flex items-center gap-3">
+              <p className="text-slate-400 font-medium">Deep dive into your progress and performance.</p>
+              {classCode && (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs font-bold text-emerald-400"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  {classCode}{classNameStr ? ` · ${classNameStr}` : ''}
+                </motion.div>
+              )}
+            </div>
           </header>
 
           {/* AI Insight Panel */}

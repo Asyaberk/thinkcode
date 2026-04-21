@@ -25,10 +25,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_user, get_current_user_optional
 from app.db.models import User, CourseResource, AiExtractedContent
 from app.ai.pdf_parser import extract_text_from_bytes
 from app.ai.content_extractor import extract_content_from_markdown
+from app.ai.link_extractor import extract_text_from_link, detect_url_type
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,16 @@ async def upload_resource(
     db.commit()
     db.refresh(resource)
 
+    # MinIO'ya yükle (kalıcı depolama) — hata olursa lokal fallback çalışmaya devam eder
+    try:
+        from app.storage.minio_client import upload_file as minio_upload, make_object_key, get_content_type
+        minio_key = make_object_key(resource_id, safe_filename)
+        ct = get_content_type(safe_filename)
+        minio_upload(str(file_path), minio_key, ct)
+        logger.info(f"[MinIO] Başarıyla yüklendi: {minio_key}")
+    except Exception as exc:
+        logger.warning(f"[MinIO] Yükleme başarısız (lokal fallback aktif): {exc}")
+
     return {
         "resource_id": resource.id,
         "filename": resource.filename,
@@ -134,6 +145,7 @@ def process_resource(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    class_id: Optional[str] = None,
 ):
     """
     Yuklenen kaynagi AI ile isler:
@@ -175,6 +187,7 @@ def process_resource(
         resource_id=resource_id,
         file_path=resource.file_path,
         week_name=resource.week_name,  # Week parent topic için
+        class_id=class_id,             # Hangi sınıfa ait
     )
 
     return {
@@ -243,39 +256,90 @@ def list_resources(
     resources = (
         db.query(CourseResource)
         .filter(CourseResource.instructor_id == current_user.id)
-        .order_by(CourseResource.created_at.desc())
+        .order_by(
+            CourseResource.week_name.nullslast(),   # Aynı modüller bir arada
+            CourseResource.created_at.desc()
+        )
         .all()
     )
 
     return [
         {
-            "resource_id": r.id,
-            "filename":    r.filename,
-            "file_type":   r.file_type,
-            "week_name":   r.week_name,
-            "status":      r.status,
+            "resource_id":   r.id,
+            "filename":      r.filename,
+            "file_type":     r.file_type,
+            "week_name":     r.week_name,
+            "status":        r.status,
             "error_message": r.error_message,
-            "created_at":  r.created_at,
+            "source_url":    r.source_url,
+            "has_file":      bool(r.file_path and r.file_path.strip()),
+            "download_url":  f"/api/v1/resources/{r.id}/download" if (r.file_path and r.file_path.strip()) else None,
+            "created_at":    r.created_at,
         }
         for r in resources
     ]
 
 
-@router.post("/link", status_code=201)
-def add_resource_link(
-    title: str = Form(...),
-    source_url: str = Form(...),
-    link_type: str = Form("link"),   # 'pdf' | 'video' | 'link'
-    week_name: Optional[str] = Form(None),
+@router.delete("/{resource_id}", status_code=204)
+def delete_resource(
+    resource_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Dosya yüklemek yerine harici link ekle (Google Drive, YouTube, vb.).
+    Kaynağı sil: DB kaydı + MinIO nesnesi + lokal disk dosyası.
+    Sadece kendi kaydettikleri kaynakları silebilirler.
+    """
+    resource = db.query(CourseResource).filter(
+        CourseResource.id == resource_id,
+        CourseResource.instructor_id == current_user.id,
+    ).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Kaynak bulunamadı veya bu size ait değil.")
 
-    - Öğrenci her bilgisayardan bu linke ulaşabilir
-    - file_path boş bırakılır, source_url doldurulur
-    - status direkt 'done' — işleme gerekmez, link hazır
+    # MinIO'dan sil
+    if resource.file_path and resource.file_path.strip():
+        try:
+            from app.storage.minio_client import make_object_key, _client
+            from pathlib import Path as _Path
+            from app.core.config import settings as _s
+            minio_key = make_object_key(resource.id, _Path(resource.file_path).name)
+            _client().remove_object(_s.MINIO_BUCKET_NAME, minio_key)
+            logger.info(f"[MinIO] Silindi: {minio_key}")
+        except Exception as exc:
+            logger.warning(f"[MinIO] Silinemedi (devam ediliyor): {exc}")
+
+        # Lokal diskten sil
+        try:
+            if os.path.exists(resource.file_path):
+                os.remove(resource.file_path)
+                logger.info(f"[Disk] Silindi: {resource.file_path}")
+        except Exception as exc:
+            logger.warning(f"[Disk] Silinemedi: {exc}")
+
+    db.delete(resource)
+    db.commit()
+    # 204 No Content
+
+
+@router.post("/link", status_code=201)
+def add_resource_link(
+    background_tasks: BackgroundTasks,
+    title: str = Form(...),
+    source_url: str = Form(...),
+    link_type: str = Form("link"),
+    week_name: Optional[str] = Form(None),
+    class_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Harici link ekle (YouTube, Google Drive, web sayfası).
+
+    URL tipine göre işleme baSlar:
+      - YouTube  → Whisper transkript → GPT extraction (async)
+      - Drive/PDF URL → indir → GPT extraction (async)
+      - Web sayfası → scrape → GPT extraction (async)
 
     Döndürür: { resource_id, title, source_url, status }
     """
@@ -283,32 +347,96 @@ def add_resource_link(
         raise HTTPException(status_code=403, detail="Sadece instructor link ekleyebilir.")
 
     resource_id = str(uuid.uuid4())
+    url_type = detect_url_type(source_url)
+    # link_type alanını URL tipinden otomatik ayarla
+    if url_type == "youtube":
+        resolved_type = "video"
+    elif url_type in ("direct_pdf", "google_drive"):
+        resolved_type = "pdf"
+    else:
+        resolved_type = link_type   # Form'dan gelen
 
     resource = CourseResource(
         id=resource_id,
         instructor_id=current_user.id,
         filename=title,
-        file_path="",            # harici link, disk dosyası yok
-        file_type=link_type,
+        file_path="",
+        file_type=resolved_type,
         week_name=week_name,
         source_url=source_url,
-        status="done",           # link hemen kullanılabilir
+        status="processing",   # async işleme başlayacak
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
     db.add(resource)
     db.commit()
-    db.refresh(resource)
 
-    logger.info(f"Link eklendi: {title} → {source_url}")
+    background_tasks.add_task(
+        _process_link_task,
+        resource_id=resource_id,
+        source_url=source_url,
+        week_name=week_name,
+        class_id=class_id,
+    )
+
+    logger.info(f"Link eklendi ve işleme başlatıldı: {title} → {source_url} [{url_type}]")
     return {
-        "resource_id": resource.id,
+        "resource_id": resource_id,
         "title": title,
         "source_url": source_url,
-        "link_type": link_type,
-        "status": "done",
-        "message": "Link başarıyla eklendi. Öğrenciler direkt erişebilir.",
+        "link_type": resolved_type,
+        "status": "processing",
+        "message": "Link alındı, içerik çıkarılıyor. Sonucu /resources/{id}/result ile sorgulayabilirsiniz.",
     }
+
+
+def _process_link_task(
+    resource_id: str,
+    source_url: str,
+    week_name: Optional[str] = None,
+    class_id: Optional[str] = None,
+) -> None:
+    """
+    Arka planda çalışan link işleme görevi.
+    URL'den metin çıkarır ve mevcut AI extraction pipeline'ına gönderir.
+    """
+    from app.db.session import SessionLocal
+    from openai import OpenAI
+
+    db = SessionLocal()
+    client = OpenAI()
+    try:
+        logger.info(f"Link işleniyor: {source_url}")
+        text = extract_text_from_link(source_url, client)
+
+        logger.info(f"Metin çıkarıldı ({len(text)} karakter), AI extraction başlıyor...")
+        extract_content_from_markdown(
+            markdown_text=text,
+            resource_id=resource_id,
+            db=db,
+            openai_client=client,
+            week_name=week_name,
+            class_id=class_id,
+        )
+
+        resource = db.query(CourseResource).filter(CourseResource.id == resource_id).first()
+        if resource:
+            resource.status = "done"
+            resource.raw_markdown = text[:10000]  # ilk 10K karakter sakla
+            resource.updated_at = datetime.now(timezone.utc)
+            db.commit()
+        logger.info(f"Link işleme tamamlandı: {resource_id}")
+
+    except Exception as exc:
+        logger.error(f"Link işleme hatası ({resource_id}): {exc}")
+        resource = db.query(CourseResource).filter(CourseResource.id == resource_id).first()
+        if resource:
+            resource.status = "failed"
+            resource.error_message = str(exc)[:500]
+            resource.updated_at = datetime.now(timezone.utc)
+            db.commit()
+    finally:
+        db.close()
 
 
 @router.get("/{resource_id}/content")
@@ -347,10 +475,81 @@ def get_resource_content(
     return extraction.extracted_json
 
 
+@router.get("/{resource_id}/download")
+def download_resource(
+    resource_id: str,
+    token: Optional[str] = None,   # ?token= query param ile auth (yeni sekme için)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    PDF kaynağını tarayıcıda görüntülemek veya indirmek için.
+    Öğrenciler LearningPage'deki 'Kaynağa Git' butonuyla erişir.
+    Instructor CourseBuilder'dan tıklayarak erişebilir.
+
+    Auth: Authorization header VEYA ?token= query param
+
+    - file_path dolu ise → FileResponse (PDF inline)
+    - source_url dolu ise → 302 redirect (YouTube, Drive, web)
+    - İkisi de yoksa → 404
+    """
+    from fastapi.responses import FileResponse, RedirectResponse
+    from app.core.security import decode_token
+    from app.db.models import User as UserModel
+
+    # Token query param fallback (yeni sekmede Authorization header gönderilemiyor)
+    user = current_user
+    if user is None and token:
+        try:
+            payload = decode_token(token)
+            user_id = payload.get("sub")
+            if user_id:
+                user = db.query(UserModel).filter(UserModel.id == user_id).first()
+        except Exception:
+            pass
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    resource = db.query(CourseResource).filter(CourseResource.id == resource_id).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Kaynak bulunamadı.")
+
+    # Harici link (YouTube, Drive) → direkt redirect
+    if resource.source_url and not (resource.file_path and resource.file_path.strip()):
+        return RedirectResponse(url=resource.source_url, status_code=302)
+
+    # PDF / dosya → MinIO'dan presigned URL dene, yoksa lokal fallback
+    if resource.file_path and resource.file_path.strip():
+        try:
+            from app.storage.minio_client import make_object_key, get_presigned_url, object_exists
+            from pathlib import Path as _Path
+            minio_key = make_object_key(resource.id, _Path(resource.file_path).name)
+            if object_exists(minio_key):
+                presigned = get_presigned_url(minio_key, expires_hours=2)
+                logger.info(f"[MinIO] Presigned URL → {resource.id}")
+                return RedirectResponse(url=presigned, status_code=302)
+        except Exception as exc:
+            logger.warning(f"[MinIO] Presigned URL üretilemedi, lokal fallback: {exc}")
+
+        # Lokal fallback (container içi disk)
+        if os.path.exists(resource.file_path):
+            media_type = "application/pdf" if resource.file_type == "pdf" else "application/octet-stream"
+            return FileResponse(
+                path=resource.file_path,
+                media_type=media_type,
+                filename=resource.filename,
+                headers={"Content-Disposition": f'inline; filename="{resource.filename}"'},
+            )
+        raise HTTPException(status_code=404, detail="Dosya ne MinIO'da ne de diskte bulundu.")
+
+    raise HTTPException(status_code=404, detail="Bu kaynağa ait dosya veya link yok.")
+
+
 
 # ─── Arka plan gorevi ────────────────────────────────────────────────────────
 
-def _process_resource_task(resource_id: str, file_path: str, week_name: Optional[str] = None):
+def _process_resource_task(resource_id: str, file_path: str, week_name: Optional[str] = None, class_id: Optional[str] = None):
     """
     Arka planda calistirilan islem gorevi.
 
@@ -389,6 +588,7 @@ def _process_resource_task(resource_id: str, file_path: str, week_name: Optional
             db=db,
             openai_client=openai_client,
             week_name=week_name,     # "Week 1" → parent topic oluşturulacak
+            class_id=class_id,       # Hangi sınıfa ait
         )
 
         # Basarili: status = done

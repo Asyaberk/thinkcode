@@ -28,7 +28,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen bg-[#0f172a] flex overflow-hidden">
+    <div className="min-h-screen bg-[#0f172a] flex overflow-hidden relative">
       {/* Left Side: Form */}
       <div className="w-full lg:w-[45%] flex flex-col justify-center px-8 sm:px-16 lg:px-24 py-12 z-10 bg-[#0f172a]">
         <motion.div
@@ -37,9 +37,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           className="max-w-md w-full mx-auto"
         >
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-base shadow-lg shadow-emerald-500/20 shrink-0">
-              T
-            </div>
+            <img
+              src="/thinkcode_logo.png"
+              alt="ThinkCode Logo"
+              className="h-10 w-auto object-contain shrink-0"
+            />
             <div className="leading-none">
               <span className="text-[18px] font-light text-slate-300 tracking-tight">Think</span><span className="text-[18px] font-bold text-emerald-400 tracking-tight">Code</span>
             </div>
@@ -108,25 +110,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               onClick={() => { setEmail('instructor@thinkcode.edu'); setPassword('Instructor123!'); }}
               className="block text-xs text-slate-400 hover:text-emerald-400 transition-colors font-medium"
             >
-              🎓 instructor@thinkcode.edu / Instructor123!
+              Instructor1 — instructor@thinkcode.edu / Instructor123!
             </button>
+            <div className="border-t border-slate-800/60 my-2" />
+            <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">CMPE211 — Algorithms &amp; Data Structures</p>
             <button
               onClick={() => { setEmail('emma.johnson@thinkcode.edu'); setPassword('Student123!'); }}
               className="block text-xs text-slate-400 hover:text-emerald-400 transition-colors font-medium"
             >
-              👨‍💻 emma.johnson@thinkcode.edu / Student123!
+              Student1 — emma.johnson@thinkcode.edu / Student123!
             </button>
             <button
               onClick={() => { setEmail('audrey.rivera@thinkcode.edu'); setPassword('Student123!'); }}
               className="block text-xs text-slate-400 hover:text-red-400 transition-colors font-medium"
             >
-              📉 audrey.rivera@thinkcode.edu / Student123!
+              Student2 — audrey.rivera@thinkcode.edu / Student123! 
             </button>
+            <div className="border-t border-slate-800/60 my-2" />
+            <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">CS204 — Systems Programming</p>
             <button
-              onClick={() => { setEmail('new.student@thinkcode.edu'); setPassword('Student123!'); }}
-              className="block text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
+              onClick={() => { setEmail('emma.flores@thinkcode.edu'); setPassword('Student123!'); }}
+              className="block text-xs text-slate-400 hover:text-blue-400 transition-colors font-medium"
             >
-              🆕 new.student@thinkcode.edu / Student123!
+              Student3 — emma.flores@thinkcode.edu / Student123!
             </button>
           </div>
         </motion.div>
@@ -147,32 +153,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Platform Status: Online</span>
           </div>
           <h2 className="text-5xl font-bold text-white tracking-tight leading-tight mb-6">
-            Master Algorithms with <span className="text-emerald-500 italic font-serif">precision</span> and <span className="text-slate-400">clarity</span>.
+            Where <span className="text-emerald-500 italic font-serif">teaching</span> meets intelligent learning.
           </h2>
           <p className="text-slate-400 text-lg font-medium leading-relaxed mb-10">
-            Our Socratic AI tutor guides you through complex concepts without giving away the answers.
+            A classroom platform for students and instructors — with adaptive pedagogical flows, AI-powered hints, and real learning analytics.
           </p>
-          
+
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-800 text-left">
               <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 mb-4">
                 <Bot size={20} />
               </div>
-              <h3 className="font-bold text-white mb-1">AI Guided</h3>
-              <p className="text-xs text-slate-500 font-medium">Personalized hints for every problem.</p>
+              <h3 className="font-bold text-white mb-1">AI Tutor</h3>
+              <p className="text-xs text-slate-500 font-medium">Guided hints that build understanding, not dependency.</p>
             </div>
             <div className="bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-800 text-left">
               <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 mb-4">
                 <Terminal size={20} />
               </div>
-              <h3 className="font-bold text-white mb-1">Interactive</h3>
-              <p className="text-xs text-slate-500 font-medium">Real-time terminal and code execution.</p>
+              <h3 className="font-bold text-white mb-1">Adaptive Flows</h3>
+              <p className="text-xs text-slate-500 font-medium">Evidence-based paths tailored to each student's progress.</p>
             </div>
           </div>
         </motion.div>
 
         <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-emerald-500 rounded-full blur-[120px] opacity-10" />
         <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-emerald-500 rounded-full blur-[120px] opacity-10" />
+      </div>
+
+      {/* Dakik Yazılım Teknolojileri — sağ alt köşe */}
+      <div className="fixed bottom-5 right-5 flex flex-col items-end gap-1.5 select-none z-50">
+        <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">Powered by</span>
+        <div className="bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2.5 hover:bg-white/15 transition-all duration-300">
+          <img
+            src="/dakikyazilim_logo.jpeg"
+            alt="Dakik Yazılım Teknolojileri"
+            title="Dakik Yazılım Teknolojileri"
+            className="h-10 w-auto"
+          />
+        </div>
       </div>
     </div>
   );

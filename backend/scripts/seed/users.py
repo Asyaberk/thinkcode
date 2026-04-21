@@ -79,26 +79,48 @@ def seed_users(db) -> tuple:
     return instructor, students
 
 
-def seed_class_and_enrollments(db, instructor, students) -> object:
-    """Seed one class and enroll all students."""
-    cls = Class(
+def seed_class_and_enrollments(db, instructor, students) -> tuple:
+    """Seed TWO classes and split students between them."""
+
+    # Class 1: Algorithms & Data Structures — first 50 students
+    cls1 = Class(
         instructor_id=instructor.id,
-        name="Algorithms & Data Structures",
-        code="COS226-F2025",
+        name="CMPE211",
+        code="CMPE211",
         semester="Fall 2025",
         academic_year=2025,
         is_active=True,
     )
-    db.add(cls)
+    db.add(cls1)
     db.flush()
 
-    for student in students:
+    for student in students[:50]:
         db.add(Enrollment(
             student_id=student.id,
-            class_id=cls.id,
+            class_id=cls1.id,
+            status="active",
+        ))
+
+    # Class 2: Systems Programming — last 50 students
+    cls2 = Class(
+        instructor_id=instructor.id,
+        name="CS204",
+        code="CS204",
+        semester="Fall 2025",
+        academic_year=2025,
+        is_active=True,
+    )
+    db.add(cls2)
+    db.flush()
+
+    for student in students[50:]:
+        db.add(Enrollment(
+            student_id=student.id,
+            class_id=cls2.id,
             status="active",
         ))
 
     db.flush()
-    print(f"  ✓ Class '{cls.name}' ({cls.code}) created — {len(students)} students enrolled")
-    return cls
+    print(f"  ✓ Class '{cls1.name}' ({cls1.code}) — 50 students")
+    print(f"  ✓ Class '{cls2.name}' ({cls2.code}) — 50 students")
+    return cls1, cls2

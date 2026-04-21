@@ -56,6 +56,15 @@ services:
       LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
       # JWT
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-thinkcode-super-secret-change-in-prod}
+      # GLM-OCR
+      GLM_OCR_API_URL: ${GLM_OCR_API_URL:-http://173.249.57.83:7003/v1/chat/completions}
+      GLM_OCR_TOKEN: ${GLM_OCR_TOKEN:-}
+      # MinIO — kalıcı dosya depolama
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-s3.iotiq.dev}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-thinkcode}
+      MINIO_SECURE: ${MINIO_SECURE:-true}
     ports:
       - "8000:8000"
     depends_on:
@@ -67,6 +76,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    volumes:
+      - ./backend/uploads:/app/uploads   # PDF'ler container yeniden başlatılsa da kalır
 
   # ── Frontend (React + Nginx) ─────────────────────────────────────────────────
   app:
