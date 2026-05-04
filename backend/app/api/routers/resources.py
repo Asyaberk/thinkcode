@@ -61,7 +61,8 @@ MAX_FILE_SIZE_MB = 10
 @router.post("/upload")
 async def upload_resource(
     file: UploadFile = File(...),
-    week_name: Optional[str] = Form(None),  # ör: "Week 1" — opsiyonel
+    week_name: Optional[str] = Form(None),
+    class_id: Optional[str] = Form(None),   # <-- hangi derse ait
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -109,10 +110,11 @@ async def upload_resource(
     resource = CourseResource(
         id=resource_id,
         instructor_id=current_user.id,
+        class_id=class_id,              # Hangi derse ait (None ise set edilmedi)
         filename=file.filename or safe_filename,
         file_path=str(file_path),
         file_type=suffix.lstrip("."),
-        week_name=week_name,          # Week 1, Week 2 vs.
+        week_name=week_name,
         status="uploaded",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -178,6 +180,8 @@ def process_resource(
 
     # Status'u 'processing' yap
     resource.status = "processing"
+    if class_id and not resource.class_id:   # Yoksa ata (upload'dan kalmamissa)
+        resource.class_id = class_id
     resource.updated_at = datetime.now(timezone.utc)
     db.commit()
 
@@ -243,25 +247,28 @@ def get_resource_result(
 
 @router.get("/")
 def list_resources(
+    class_id: Optional[str] = None,    # Varsa sadece o derse ait kaynaklar
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Bu instructora ait tum kaynaklari listeler.
-    Content Builder sayfasindaki 'Resources' bolumunu doldurur.
+    Bu instructora ait kaynakları listeler.
+    class_id verilirse sadece o derse ait olanları döndürür.
     """
     if current_user.role not in ("instructor", "admin"):
-        raise HTTPException(status_code=403, detail="Sadece instructor kaynak gorebilir.")
+        raise HTTPException(status_code=403, detail="Sadece instructor kaynak görebilir.")
 
-    resources = (
+    q = (
         db.query(CourseResource)
         .filter(CourseResource.instructor_id == current_user.id)
-        .order_by(
-            CourseResource.week_name.nullslast(),   # Aynı modüller bir arada
-            CourseResource.created_at.desc()
-        )
-        .all()
     )
+    if class_id:
+        q = q.filter(CourseResource.class_id == class_id)
+
+    resources = q.order_by(
+        CourseResource.week_name.nullslast(),
+        CourseResource.created_at.desc()
+    ).all()
 
     return [
         {
@@ -290,6 +297,11 @@ def delete_resource(
     Kaynağı sil: DB kaydı + MinIO nesnesi + lokal disk dosyası.
     Sadece kendi kaydettikleri kaynakları silebilirler.
     """
+    # UUID format validation
+    import re
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', resource_id, re.I):
+        raise HTTPException(status_code=422, detail="Geçersiz resource_id formatı (UUID bekleniyor).")
+
     resource = db.query(CourseResource).filter(
         CourseResource.id == resource_id,
         CourseResource.instructor_id == current_user.id,
@@ -345,6 +357,13 @@ def add_resource_link(
     """
     if current_user.role not in ("instructor", "admin"):
         raise HTTPException(status_code=403, detail="Sadece instructor link ekleyebilir.")
+
+    if not source_url or not source_url.strip():
+        raise HTTPException(status_code=422, detail="source_url boş olamaz.")
+    if not title or not title.strip():
+        raise HTTPException(status_code=422, detail="title boş olamaz.")
+    if not source_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Geçerli bir URL giriniz (http:// veya https:// ile başlamalı).")
 
     resource_id = str(uuid.uuid4())
     url_type = detect_url_type(source_url)

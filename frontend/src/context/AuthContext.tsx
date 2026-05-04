@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { AuthUser, UserRole } from '../types';
-import { login as apiLogin, logout as apiLogout, getStoredUser, getStoredToken } from '../api/auth';
+import { login as apiLogin, logout as apiLogout, register as apiRegister, getStoredUser, getStoredToken } from '../api/auth';
+import type { RegisterPayload } from '../api/auth';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -9,6 +10,7 @@ interface AuthContextValue {
   isLoading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => void;
 }
 
@@ -48,6 +50,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const register = useCallback(async (payload: RegisterPayload) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await apiRegister(payload);
+      setUser(result.user);
+      setToken(result.token);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Registration failed';
+      setError(msg);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const logout = useCallback(() => {
     apiLogout();
     setUser(null);
@@ -55,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, userRole, isLoading, error, login, logout }}>
+    <AuthContext.Provider value={{ user, token, userRole, isLoading, error, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

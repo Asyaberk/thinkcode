@@ -67,38 +67,47 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
 
 # ─── PDF Pipeline ─────────────────────────────────────────────────────────────
 
+# GLM-OCR sayfa başına maksimum timeout (saniye)
+# Gece sunucu kapalıysa çok beklemesin — pdfplumber fallback hızlı devreye girsin
+GLM_PAGE_TIMEOUT = 30
+# Maksimum işlenecek sayfa sayısı (çok büyük PDF'lerde zaman aşımı önler)
+GLM_MAX_PAGES = 40
+
+
 def _process_pdf(file_path: str) -> str:
     """
-    PDF'i önce GLM-OCR (ücretsiz) ile, başarısız olursa pdfplumber ile okur.
+    PDF'i önce GLM-OCR (primary, ücretsiz, taranmış PDF dahil) ile okur.
+    GLM sunucusu kapalıysa veya yeterli metin üretemezse pdfplumber (fallback) devreye girer.
 
-    Neden bu sıra?
-      - GLM-OCR: Mert'in sunucusu, ücretsiz, taranmış PDF'leri de okur
-      - pdfplumber: Lokal, ücretsiz, sadece metin gömülü PDF'lerde çalışır
-      - OpenAI Vision: KULLANILMIYOR (maliyetli)
+    Sıra:
+      1. GLM-OCR  — Mert'in sunucusu (gece kapalı olabilir → 30s timeout/sayfa)
+      2. pdfplumber — Lokal, ücretsiz, metin gömülü PDF'ler için mükemmel
     """
-    logger.info(f"PDF işleniyor: {file_path}")
+    logger.info(f"PDF işleniyor (GLM-OCR primary): {file_path}")
 
-    # 1. GLM-OCR (primary — ücretsiz)
+    # 1. GLM-OCR (PRIMARY)
     try:
         text = _extract_pdf_with_glm_ocr(file_path)
         if text and len(text.strip()) >= MIN_TEXT_CHARS:
-            logger.info(f"GLM-OCR başarılı: {len(text)} karakter")
+            logger.info(f"✓ GLM-OCR başarılı: {len(text)} karakter")
             return text
-        logger.info("GLM-OCR az metin döndürdü, pdfplumber deneniyor...")
+        logger.info("GLM-OCR az metin döndürdü, pdfplumber fallback deneniyor...")
     except Exception as e:
-        logger.warning(f"GLM-OCR başarısız ({e}), pdfplumber'a geçiliyor...")
+        logger.warning(f"GLM-OCR erişilemedi ({type(e).__name__}: {e}), pdfplumber fallback devreye giriyor...")
 
-    # 2. pdfplumber (fallback — ücretsiz, lokal)
+    # 2. pdfplumber (FALLBACK)
     try:
         text = _extract_with_pdfplumber(file_path)
         if text and len(text.strip()) >= MIN_TEXT_CHARS:
-            logger.info(f"pdfplumber başarılı: {len(text)} karakter")
+            logger.info(f"✓ pdfplumber fallback başarılı: {len(text)} karakter")
             return text
+        logger.warning("pdfplumber da yeterli metin bulamadı.")
     except Exception as e:
         logger.warning(f"pdfplumber hatası: {e}")
 
     raise RuntimeError(
-        "PDF okunamadı: GLM-OCR sunucusu erişilemez ve pdfplumber yeterli metin bulamadı."
+        "PDF okunamadı: GLM-OCR sunucusu erişilemez (gece kapalı olabilir) "
+        "ve pdfplumber bu PDF'den yeterli metin çıkaramadı (taranmış/görüntü tabanlı olabilir)."
     )
 
 
@@ -113,17 +122,26 @@ def _extract_pdf_with_glm_ocr(file_path: str) -> str:
 
     logger.info("PDF sayfaları görüntüye çevriliyor (dpi=100)...")
     pages = convert_from_path(file_path, dpi=100)
-    logger.info(f"{len(pages)} sayfa")
+    total = len(pages)
+    if total > GLM_MAX_PAGES:
+        logger.warning(f"PDF {total} sayfa — ilk {GLM_MAX_PAGES} sayfa işleniyor (limit: {GLM_MAX_PAGES}).")
+        pages = pages[:GLM_MAX_PAGES]
+    logger.info(f"{len(pages)}/{total} sayfa GLM-OCR ile işlenecek")
 
     all_text: list[str] = []
+    failed_pages = 0
     for i, page_img in enumerate(pages, start=1):
-        logger.info(f"  Sayfa {i}/{len(pages)} GLM-OCR...")
+        logger.info(f"  Sayfa {i}/{len(pages)} → GLM-OCR...")
         try:
             text = _send_image_to_glm_ocr(page_img)
             all_text.append(f"## Sayfa {i}\n\n{text}")
         except Exception as e:
             logger.warning(f"  Sayfa {i} GLM-OCR hatası: {e}")
             all_text.append(f"## Sayfa {i}\n\n[Okunamadı]")
+            failed_pages += 1
+            # İlk 3 sayfanın tamamı başarısız → sunucu kapalı, hemen çık
+            if i <= 3 and failed_pages >= i:
+                raise RuntimeError(f"GLM-OCR sunucusu yanıt vermiyor (ilk {i} sayfa başarısız)")
 
     return "\n\n".join(all_text)
 
@@ -151,7 +169,7 @@ def _send_image_to_glm_ocr(pil_image) -> str:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {settings.GLM_OCR_TOKEN}",
     }
-    resp = requests.post(settings.GLM_OCR_API_URL, headers=headers, json=body, timeout=60)
+    resp = requests.post(settings.GLM_OCR_API_URL, headers=headers, json=body, timeout=GLM_PAGE_TIMEOUT)
     if resp.status_code != 200:
         raise RuntimeError(f"GLM-OCR HTTP {resp.status_code}: {resp.text[:200]}")
     return resp.json()["choices"][0]["message"]["content"]

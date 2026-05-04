@@ -41,11 +41,21 @@ def _get_class_id(db: Session, student_id: str) -> Optional[str]:
 def my_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    class_id: Optional[str] = Query(None, description="Specific class ID to show analytics for"),
 ):
-    class_id = _get_class_id(db, current_user.id)
+    # class_id query param ile belirtilmişse onu kullan, yoksa ilk enrollment
+    if not class_id:
+        class_id = _get_class_id(db, current_user.id)
 
-    # Mastery summary — SQL aggregation, no loops
-    mastery_rows = get_student_mastery_summary(db, current_user.id)
+    # Mastery summary — filter by class_id to show per-course stats
+    mastery_rows = get_student_mastery_summary(db, current_user.id, class_id=class_id)
+
+    # Submission totals — filtered by class
+    from sqlalchemy.orm import Session as _Session
+    subs_query = db.query(Submission).filter_by(student_id=current_user.id)
+    if class_id:
+        subs_query = subs_query.filter_by(class_id=class_id)
+    subs = subs_query.all()
 
     # Percentile — window function
     percentile_data = {"percentile": 50.0, "rank": None, "total_students": 0, "avg_mastery": 0.0}
@@ -58,9 +68,6 @@ def my_dashboard(
         sum(float(r["mastery_score"] or 0) for r in scored) / len(scored)
         if scored else 0.0
     )
-
-    # Submission totals
-    subs = db.query(Submission).filter_by(student_id=current_user.id).all()
 
     # Hint usage — hint_requests tablosundan problem bazinda toplam hint sayisi
     hint_sql = text("""
@@ -450,14 +457,18 @@ def class_distribution(
         # Sınıf yoksa boş dağılım
         return [{"bucket": i * 10, "label": f"{i*10}-{i*10+10}", "count": 0} for i in range(10)]
 
-    # Her öğrencinin ortalama mastery skoru
+    # Per-student avg mastery in a subquery, then bucket in outer query
     rows = db.execute(sql_text("""
         SELECT
-            FLOOR(AVG(mastery_score) / 10) * 10 AS bucket,
-            COUNT(DISTINCT student_id) AS student_count
-        FROM student_topic_mastery
-        WHERE class_id = :class_id
-        GROUP BY FLOOR(AVG(mastery_score) / 10) * 10
+            FLOOR(avg_score / 10) * 10  AS bucket,
+            COUNT(*)                    AS student_count
+        FROM (
+            SELECT student_id, AVG(COALESCE(mastery_score, 0)) AS avg_score
+            FROM student_topic_mastery
+            WHERE class_id = :class_id
+            GROUP BY student_id
+        ) per_student
+        GROUP BY FLOOR(avg_score / 10) * 10
         ORDER BY bucket
     """).bindparams(class_id=class_id)).fetchall()
 

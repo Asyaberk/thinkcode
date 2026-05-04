@@ -114,11 +114,13 @@ export interface DbProblem {
 
 export async function uploadResource(
   file: File,
-  weekName?: string
+  weekName?: string,
+  classId?: string,
 ): Promise<{ resource_id: string; filename: string; status: string; message: string }> {
   const form = new FormData();
   form.append('file', file);
   if (weekName?.trim()) form.append('week_name', weekName.trim());
+  if (classId?.trim())  form.append('class_id', classId.trim());  // <-- course tag
   const res = await fetch(`${BASE_URL}/resources/upload`, {
     method: 'POST', headers: authHeaders(), body: form,
   });
@@ -152,8 +154,11 @@ export async function pollResult(resourceId: string): Promise<ResourceResult> {
   return res.json();
 }
 
-export async function listResources(): Promise<ResourceItem[]> {
-  const res = await fetch(`${BASE_URL}/resources/`, { headers: authHeaders() });
+export async function listResources(classId?: string): Promise<ResourceItem[]> {
+  const url = classId
+    ? `${BASE_URL}/resources/?class_id=${encodeURIComponent(classId)}`
+    : `${BASE_URL}/resources/`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`List failed: HTTP ${res.status}`);
   return res.json();
 }

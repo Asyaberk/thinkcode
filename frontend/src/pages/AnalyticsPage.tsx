@@ -44,6 +44,8 @@ interface AnalyticsPageProps {
   onProblemsClick: () => void;
   onInstructorDashboardClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
 }
 
@@ -59,6 +61,8 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
   onProblemsClick,
   onInstructorDashboardClick,
   onLogout,
+  onSwitchCourse,
+  courseName,
   userRole,
 }) => {
   // ── State — tasarım değişmedi, sadece data kaynağı backend'e taşındı ──────
@@ -209,8 +213,10 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
         onDashboardClick={onDashboardClick}
         onProblemsClick={onProblemsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
         progressPercent={sections.length > 0 ? Math.round((sections.filter(s => s.isCompleted).length / sections.length) * 100) : 0}
       />
       

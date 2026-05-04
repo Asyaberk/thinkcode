@@ -1,20 +1,10 @@
-/**
- * ChatQuestionInterface.tsx — Soru Çözme Chatbot Bileşeni.
- *
- * Değişiklikler:
- *  1. "@google/genai" import'u KALDIRILDI — Gemini API key güvenlik riski oluşturuyordu
- *  2. addExplanation / addErrorExplanation → backend tutor chat endpoint'ine yönlendirildi
- *  3. Tasarım ve ref yapısı (addFeedback, addMessage, addExplanation) tamamen KORUNDU
- *  4. OVERFLOW FIX: min-h-0 + flex-shrink-0 eklendi — chat artık sayfadan taşmıyor
- */
-
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { Send, Bot, User } from 'lucide-react';
+import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Question, ChatMessage } from '../types';
+import { chatWithTutor } from '../api/tutor';
 import { cn } from '../lib/utils';
-import { api } from '../api/client';
 
-// ── Public ref interface — QuestionPage bu metodları çağırır ────────────────
 export interface ChatQuestionInterfaceRef {
   addFeedback: (isCorrect: boolean, explanation: string) => void;
   addMessage: (role: 'user' | 'assistant', content: string) => void;
@@ -30,278 +20,241 @@ export const ChatQuestionInterface = forwardRef<ChatQuestionInterfaceRef, ChatQu
   { question },
   ref
 ) => {
+  const problemId = question.problemId || question.id;
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Parallel history kept as {role, content}[] to send to backend
+  const [apiHistory, setApiHistory] = useState<{ role: string; content: string }[]>([]);
   const [input, setInput] = useState('');
-  const [pendingExplanation, setPendingExplanation] = useState<string | null>(null);
-  const [isAiThinking, setIsAiThinking] = useState(false);
-  const [chatHistory, setChatHistory] = useState<{role: string; content: string}[]>([]);
-  // scrollRef: yeni mesaj gelince en alta scroll yapar
+  const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Dışarıdan çağrılabilen metodlar (QuestionPage ref üzerinden kullanır) ──
-  useImperativeHandle(ref, () => ({
-    // addFeedback: Cevap değerlendirme sonucunu chatbot'a ekle
-    addFeedback: (isCorrect: boolean, explanation: string) => {
-      const aiMsg: ChatMessage = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: isCorrect
-          ? "Great job! That's the correct answer. Would you like to understand **why** this is the right choice?"
-          : "Not quite. That doesn't seem to be the correct snippet for this blank. Would you like to know **why** it's incorrect and get a hint?",
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, aiMsg]);
-      setPendingExplanation(explanation);
-    },
-
-    // addMessage: Doğrudan mesaj ekle (sistem bildirimi için)
-    addMessage: (role: 'user' | 'assistant', content: string) => {
-      const msg: ChatMessage = {
-        id: Date.now().toString(),
-        role,
-        content,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, msg]);
-    },
-
-    // addExplanation: Kodu backend AI'a açıklat
-    addExplanation: async (code: string) => {
-      setIsAiThinking(true);
-      try {
-        const response = await api.post<{response: string; chat_history: any[]}>('/tutor/chat', {
-          problem_id: question.id,
-          new_message: `Please explain this code:\n\`\`\`cpp\n${code}\n\`\`\``,
-          chat_history: chatHistory,
-          student_code_or_answer: code,
-        });
-        const aiMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: response.response || "I couldn't generate an explanation for this code.",
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, aiMsg]);
-        setChatHistory(response.chat_history || []);
-      } catch (error) {
-        console.error("AI Explanation error:", error);
-        const aiMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: "I'm having trouble connecting to the AI tutor. Here's a tip: look at what this code section does step by step.",
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, aiMsg]);
-      } finally {
-        setIsAiThinking(false);
-      }
-    },
-
-    // addErrorExplanation: Derleme hatasını backend AI'a açıklat
-    addErrorExplanation: async (code: string, error: string) => {
-      setIsAiThinking(true);
-      try {
-        const response = await api.post<{response: string; chat_history: any[]}>('/tutor/chat', {
-          problem_id: question.id,
-          new_message: `I got this compiler error. Can you explain what's wrong?\n\nError:\n${error}`,
-          chat_history: chatHistory,
-          student_code_or_answer: code,
-        });
-        const aiMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: response.response || "I couldn't analyze this error.",
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, aiMsg]);
-        setChatHistory(response.chat_history || []);
-      } catch (error) {
-        console.error("AI Error Explanation error:", error);
-        const aiMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: "Check your syntax carefully. Common issues include missing semicolons, mismatched braces, or undefined variables.",
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, aiMsg]);
-      } finally {
-        setIsAiThinking(false);
-      }
-    }
-  }));
-
-  // ── İlk yükleme mesajı ───────────────────────────────────────────────────────
+  // Initialise with a welcome message when question changes
   useEffect(() => {
-    const initialMessages: ChatMessage[] = [
-      {
-        id: '1',
-        role: 'assistant',
-        content: `I've set up a coding exercise for you. \n\n**Goal:** ${question.description}\n\nLook at the code and select the correct option to fill the blank.`,
-        timestamp: Date.now(),
-      },
-    ];
-    setMessages(initialMessages);
-    setChatHistory([]);
-  }, [question]);
+    const welcome: ChatMessage = {
+      id: '0',
+      role: 'assistant',
+      content: `Hi! I'm your AI Tutor for **${question.title}**.\n\nI won't give you the answer directly — but I'll guide you there with questions. Ask me for a hint, explain your thinking, or say "check my answer".`,
+      timestamp: Date.now(),
+    };
+    setMessages([welcome]);
+    setApiHistory([]);
+  }, [question.id]);
 
-  // ── Scroll: yeni mesaj gelince en alta git ────────────────────────────────────
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
-  // ── Kullanıcı mesajı gönder ─────────────────────────────────────────────────
-  const handleSend = async () => {
-    if (!input.trim() || isAiThinking) return;
+  // ── Helper: push an AI message into state ──────────────────────────────────
+  const pushAI = (content: string) => {
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'assistant',
+      content,
+      timestamp: Date.now(),
+    }]);
+  };
 
-    const userMsg: ChatMessage = {
+  const pushUser = (content: string) => {
+    setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content,
       timestamp: Date.now(),
-    };
-    setMessages(prev => [...prev, userMsg]);
-    const currentInput = input.trim().toLowerCase();
-    setInput('');
-    setIsAiThinking(true);
+    }]);
+  };
 
+  // ── Core: call real backend ────────────────────────────────────────────────
+  const callTutor = async (userMessage: string, codeContext?: string) => {
+    if (!problemId) {
+      pushAI("Sorry, I can't connect to the AI right now — problem ID missing.");
+      return;
+    }
+    setIsLoading(true);
     try {
-      // "Yes/evet/why/neden" → pending explanation varsa onu göster
-      if (pendingExplanation && (
-        currentInput.includes('yes') || currentInput.includes('evet') ||
-        currentInput.includes('why') || currentInput.includes('neden')
-      )) {
-        const aiMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: pendingExplanation,
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, aiMsg]);
-        setPendingExplanation(null);
-        setIsAiThinking(false);
-        return;
-      }
-
-      // Diğer tüm mesajlar → backend LangGraph tutor'una gönder
-      const response = await api.post<{response: string; chat_history: any[]}>('/tutor/chat', {
-        problem_id: question.id,
-        new_message: input,
-        chat_history: chatHistory,
-        student_code_or_answer: null,
+      const result = await chatWithTutor({
+        problem_id: problemId,
+        new_message: userMessage,
+        chat_history: apiHistory as any,
+        student_code_or_answer: codeContext || '',
       });
-
-      const aiMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response.response,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, aiMsg]);
-      setChatHistory(response.chat_history || []);
-    } catch (err) {
-      const errorMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: "I'm having trouble connecting right now. Try again in a moment, or think about the problem hint above.",
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, errorMsg]);
+      const aiText = result.response;
+      pushAI(aiText);
+      // Update API history
+      setApiHistory(result.chat_history as any);
+    } catch (err: any) {
+      pushAI("⚠️ Couldn't reach the AI Tutor. Please check your connection and try again.");
     } finally {
-      setIsAiThinking(false);
+      setIsLoading(false);
     }
   };
 
-  return (
-    // OVERFLOW FIX: h-full + min-h-0 → FlexBox'ta child'lar parent'ı aşmaz, scroll düzgün çalışır
-    <div className="h-full flex flex-col bg-[#0f172a] border-l border-slate-800 shadow-inner min-h-0">
+  // ── Ref methods (called by QuestionPage) ───────────────────────────────────
+  useImperativeHandle(ref, () => ({
+    addFeedback: (isCorrect: boolean, explanation: string) => {
+      if (isCorrect) {
+        pushAI(`✅ Correct! ${explanation || "Great work!"}\n\nWould you like me to explain **why** this is the right answer?`);
+      } else {
+        pushAI(`❌ Not quite. ${explanation || "Let's think about this differently."}\n\nWould you like a hint?`);
+      }
+    },
+    addMessage: (role: 'user' | 'assistant', content: string) => {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role,
+        content,
+        timestamp: Date.now(),
+      }]);
+    },
+    addExplanation: async (code: string) => {
+      pushUser('Can you explain my code?');
+      await callTutor('Can you explain my code step by step?', code);
+    },
+    addErrorExplanation: async (code: string, error: string) => {
+      pushUser(`I got this error: ${error.slice(0, 120)}`);
+      await callTutor(
+        `My code is giving this error: "${error}". Can you explain what it means and guide me to fix it?`,
+        code
+      );
+    },
+  }));
 
-      {/* Header — flex-shrink-0: büzülmez, her zaman görünür */}
-      <div className="px-6 py-5 border-b border-slate-800 bg-[#0f172a] flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <div className="w-11 h-11 bg-emerald-500 rounded-2xl flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/10">
-              <Bot size={22} strokeWidth={2} />
-            </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0f172a] rounded-full" />
+  // ── User sends a message ───────────────────────────────────────────────────
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    setInput('');
+    pushUser(text);
+    await callTutor(text);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="h-full flex flex-col bg-[#0f172a] border-l border-slate-800">
+      {/* Header */}
+      <div className="px-6 py-5 border-b border-slate-800 bg-[#0f172a] flex items-center gap-4 shrink-0">
+        <div className="relative">
+          <div className="w-11 h-11 bg-emerald-500 rounded-2xl flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/10">
+            <Bot size={22} strokeWidth={2} />
           </div>
-          <div>
-            <h3 className="font-bold text-white text-[15px] tracking-tight">AI Tutor</h3>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Socratic Mode</span>
-            </div>
-          </div>
+          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0f172a] rounded-full" />
+        </div>
+        <div>
+          <h3 className="font-bold text-white text-[15px] tracking-tight">AI Tutor</h3>
+          <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Socratic Mode · LangGraph</span>
         </div>
       </div>
 
-      {/* Chat Alanı — min-h-0 sayesinde taşmadan scroll olur */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 bg-[#0d1117] min-h-0">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "flex gap-4 max-w-[90%]",
-              msg.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
-            )}
-          >
-            <div className={cn(
-              "w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white shadow-sm transition-transform hover:scale-105",
-              msg.role === 'user' ? "bg-emerald-500 text-slate-950" : "bg-slate-800 border border-slate-700 !text-slate-200"
-            )}>
-              {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
-            </div>
-            <div className={cn(
-              "p-5 rounded-2xl text-[14px] leading-[1.6] shadow-sm border",
-              msg.role === 'user'
-                ? "bg-emerald-500 text-slate-950 border-emerald-400 rounded-tr-none"
-                : "bg-slate-800 text-slate-300 border-slate-700 rounded-tl-none"
-            )}>
-              {/* Markdown bold (**text**) ve newline desteği */}
-              {msg.content.split('\n').map((line, i) => (
-                <p key={i} className={line ? 'mb-3 last:mb-0' : 'h-3'} dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-bold">$1</strong>') }} />
-              ))}
-            </div>
-          </div>
-        ))}
-
-        {/* AI Thinking indicator — üç nokta animasyonu */}
-        {isAiThinking && (
-          <div className="flex gap-4 max-w-[90%] mr-auto">
-            <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center bg-slate-800 border border-slate-700 text-slate-200">
-              <Bot size={18} className="animate-pulse" />
-            </div>
-            <div className="p-5 rounded-2xl text-[14px] bg-slate-800 text-slate-300 border-slate-700 rounded-tl-none flex items-center gap-2">
-              <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0d1117]">
+        <AnimatePresence initial={false}>
+          {messages.map(msg => (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className={cn(
+                "flex gap-3 max-w-[92%]",
+                msg.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
+              )}
+            >
+              <div className={cn(
+                "w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center shadow-sm",
+                msg.role === 'user'
+                  ? "bg-emerald-500 text-slate-950"
+                  : "bg-slate-800 border border-slate-700 text-slate-200"
+              )}>
+                {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
               </div>
-              <span className="italic text-xs text-slate-500">Thinking...</span>
+              <div className={cn(
+                "p-4 rounded-2xl text-sm leading-relaxed border",
+                msg.role === 'user'
+                  ? "bg-emerald-500 text-slate-950 border-emerald-400 rounded-tr-none font-medium"
+                  : "bg-slate-800 text-slate-300 border-slate-700 rounded-tl-none"
+              )}>
+                {msg.content.split('\n').map((line, i) => (
+                  <p
+                    key={i}
+                    className={line ? 'mb-2 last:mb-0' : 'h-2'}
+                    dangerouslySetInnerHTML={{
+                      __html: line
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-bold">$1</strong>')
+                        .replace(/`(.*?)`/g, '<code class="bg-slate-900 text-emerald-400 px-1 py-0.5 rounded text-xs font-mono">$1</code>')
+                    }}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex gap-3 max-w-[92%] mr-auto"
+          >
+            <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center bg-slate-800 border border-slate-700 text-slate-200">
+              <Loader2 size={16} className="animate-spin" />
             </div>
-          </div>
+            <div className="p-4 rounded-2xl bg-slate-800 border border-slate-700 rounded-tl-none flex items-center gap-2">
+              <div className="flex gap-1">
+                {[0, 150, 300].map(delay => (
+                  <div
+                    key={delay}
+                    className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+              </div>
+              <span className="text-xs text-slate-500 italic">Thinking...</span>
+            </div>
+          </motion.div>
         )}
       </div>
 
-      {/* Input Alanı — flex-shrink-0: büzülmez, her zaman altta görünür */}
-      <div className="p-6 bg-[#0f172a] border-t border-slate-800 flex-shrink-0">
+      {/* Quick prompts */}
+      {messages.length <= 1 && (
+        <div className="px-6 pb-3 flex gap-2 flex-wrap shrink-0">
+          {["Give me a hint", "Explain this problem", "Check my approach", "What should I try first?"].map(prompt => (
+            <button
+              key={prompt}
+              onClick={() => { setInput(prompt); }}
+              className="text-[11px] px-3 py-1.5 rounded-full border border-slate-700 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400 transition-all"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="p-5 bg-[#0f172a] border-t border-slate-800 shrink-0">
         <div className="relative group">
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask a question or type 'Yes' to see explanation..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-5 pr-14 py-4 text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-slate-800 outline-none transition-all placeholder:text-slate-600 text-slate-200"
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="Ask for a hint, explain your thinking..."
+            disabled={isLoading}
+            className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-5 pr-14 py-4 text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-slate-800 outline-none transition-all placeholder:text-slate-600 text-slate-200 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            className="absolute right-2 top-2 bottom-2 bg-emerald-500 text-slate-950 px-4 rounded-xl hover:bg-emerald-400 transition-all shadow-md active:scale-95 disabled:opacity-50"
-            disabled={!input.trim() || isAiThinking}
+            disabled={!input.trim() || isLoading}
+            className="absolute right-2 top-2 bottom-2 bg-emerald-500 text-slate-950 px-4 rounded-xl hover:bg-emerald-400 transition-all shadow-md active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Send size={18} />
+            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
           </button>
         </div>
+        <p className="text-[10px] text-slate-600 mt-2 text-center">
+          Powered by LangGraph · GPT-4.1-nano · Socratic method
+        </p>
       </div>
     </div>
   );

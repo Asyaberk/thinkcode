@@ -93,8 +93,12 @@ interface InstructorDashboardProps {
   onInstructorDashboardClick?: () => void;
   onCourseBuilderClick?: () => void;
   onFlowDesignerClick?: () => void;
+  onEnrollmentManagementClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
+  activeCourseId?: string; // Course Selection'dan seçilen kurs ID'si
 }
 
 // ── Yükleme sırasında gösterilecek fallback verisi ─────────────────────────
@@ -164,20 +168,30 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   onInstructorDashboardClick,
   onCourseBuilderClick,
   onFlowDesignerClick,
+  onEnrollmentManagementClick,
   onLogout,
-  userRole
+  onSwitchCourse,
+  courseName,
+  userRole,
+  activeCourseId,
 }) => {
   // — Sınıf seçici —
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
-  const [activeClassId, setActiveClassId] = useState<string>('');
+  // activeCourseId prop'u varsa onu kullan, yoksa ilk sınıfı seç
+  const [activeClassId, setActiveClassId] = useState<string>(activeCourseId || '');
   const activeClass = instructorClasses.find(c => c.class_id === activeClassId);
 
-  // Sınıf listesi yüklenince ilk sınıfı seç
+  // Sınıf listesi yüklendiğinde: activeCourseId varsa kullan, yoksa ilkini seç
   useEffect(() => {
     if (instructorClasses.length > 0 && !activeClassId) {
-      setActiveClassId(instructorClasses[0].class_id);
+      setActiveClassId(activeCourseId || instructorClasses[0].class_id);
     }
-  }, [instructorClasses, activeClassId]);
+  }, [instructorClasses]);
+
+  // activeCourseId prop değişince güncelle
+  useEffect(() => {
+    if (activeCourseId) setActiveClassId(activeCourseId);
+  }, [activeCourseId]);
 
   const PATTERN_META: Record<string, { icon: any; label: string; color: string }> = {
     mastery_gate:    { icon: Shield,    label: 'Mastery Gate',    color: 'text-purple-400' },
@@ -366,46 +380,25 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
         onInstructorDashboardClick={onInstructorDashboardClick}
         onCourseBuilderClick={onCourseBuilderClick}
         onFlowDesignerClick={onFlowDesignerClick}
+        onEnrollmentManagementClick={onEnrollmentManagementClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
       />
 
       <main className="flex-1 overflow-y-auto ml-72">
         <div className="p-8 max-w-7xl mx-auto space-y-8">
 
-          {/* — Header: Sınıf Seçici — */}
-          <div className="flex justify-between items-start gap-4 flex-wrap">
+          {/* — Header — */}
+          <div className="flex justify-between items-center gap-4 flex-wrap">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-3">Instructor Dashboard</h1>
-              <div className="flex items-center gap-2 flex-wrap">
-                {instructorClasses.map(cls => {
-                  const pm = cls.active_pattern ? PATTERN_META[cls.active_pattern] : null;
-                  return (
-                    <button
-                      key={cls.class_id}
-                      onClick={() => { setActiveClassId(cls.class_id); setAiReport(null); }}
-                      className={cn(
-                        'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all',
-                        activeClassId === cls.class_id
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500'
-                      )}
-                    >
-                      <span>{cls.class_code}</span>
-                      <span className="text-slate-500">·</span>
-                      <span>{cls.total_students} students</span>
-                      {pm && (
-                        <span className={cn('flex items-center gap-1 ml-1', pm.color)}>
-                          <pm.icon size={10} />
-                          <span className="text-[9px]">{pm.label}</span>
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+              <h1 className="text-3xl font-bold text-white mb-1">Instructor Dashboard</h1>
+              {courseName && (
+                <p className="text-slate-400 text-sm font-medium">{courseName}</p>
+              )}
             </div>
-            <div className="flex gap-3 items-start">
+            <div className="flex gap-3 items-center">
               <div className="px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center gap-2">
                 <Users size={18} className="text-emerald-500" />
                 <span className="text-sm font-medium">

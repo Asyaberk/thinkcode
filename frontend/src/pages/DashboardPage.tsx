@@ -1,34 +1,33 @@
 /**
  * DashboardPage.tsx — Öğrenci ana paneli.
  *
- * Mock data KALDIRILDI. Artık backend'den gerçek veriler çekiliyor:
+ * Backend API'den gerçek veriler çekiliyor:
  *   - GET /api/v1/analytics/me/dashboard  → profil, streak, mastery, weak topics
- *   - Tasarım ve bileşen yapısı tamamen KORUNDU — sadece veri kaynağı değişti.
+ *   - GET /api/v1/analytics/me/streak     → streak_days
+ *   - GET /api/v1/analytics/me/class-distribution → puan dağılımı
+ *
+ * UI: ui-template tasarımına uyarlandı (Learning Path list, Streak card, Course Info).
  */
 
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Flame,
+  Check,
   CheckCircle2,
   BookOpen,
   Brain,
   ChevronRight,
   Zap,
-  Target,
-  BarChart3,
   Users,
   Clock,
   RotateCcw,
+  ArrowRight,
 } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import { Section, UserRole } from '../types';
 import { cn } from '../lib/utils';
 import { Sidebar } from '../components/Sidebar';
-import { getMyDashboard, DashboardData, getMyStreak, StreakData, getClassDistribution, ClassDistributionBucket } from '../api/analytics';
-
-// distributionData: artık static değil — component içinde state olarak yönetiliyor
-// Bkz. useEffect içindeki getClassDistribution() çağrısı
+import { getMyDashboard, DashboardData, getMyStreak, StreakData } from '../api/analytics';
 
 interface DashboardPageProps {
   sections: Section[];
@@ -38,10 +37,12 @@ interface DashboardPageProps {
   onPlaygroundClick?: () => void;
   onInstructorDashboardClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
   /** Submission sonrası dashboard'u yenilemek için arttırılır */
   refreshKey?: number;
-  /** Öğrencinin sınıf ID'si — Spaced Review fetch için */
+  /** Öğrencinin sınıf ID'si */
   classId?: string;
   /** Bugün vadesi gelen Spaced Review kayıtları */
   dueReviews?: import('../api/flows').SpacedReviewItem[];
@@ -57,32 +58,29 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onPlaygroundClick,
   onInstructorDashboardClick,
   onLogout,
+  onSwitchCourse,
   userRole,
   refreshKey = 0,
   classId,
   dueReviews = [],
   onReviewStart,
+  courseName,
 }) => {
-  // ── State: API verisi ────────────────────────────────────────────────────────
+  // ── State ────────────────────────────────────────────────────────────────────
   const [dashData, setDashData] = useState<DashboardData | null>(null);
   const [streakData, setStreakData] = useState<StreakData>({ streak_days: 0, last_active: null });
-  // distributionData: sınıf puan dağılımı — DB'den gelir
-  const [distributionData, setDistributionData] = useState<ClassDistributionBucket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-
-  // ── API'den dashboard verisini çek ──────────────────────────────────────────
+  // ── API ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [dash, streak, dist] = await Promise.all([
+        const [dash, streak] = await Promise.all([
           getMyDashboard(),
           getMyStreak().catch(() => ({ streak_days: 0, last_active: null })),
-          getClassDistribution().catch(() => []),
         ]);
         setDashData(dash);
         setStreakData(streak);
-        setDistributionData(dist);
       } catch (err) {
         console.error('Dashboard yüklenemedi:', err);
       } finally {
@@ -90,60 +88,29 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       }
     };
     fetchAll();
-  }, [refreshKey]);  // refreshKey degisince yeniden fetch yap (submission sonrasi)
+  }, [refreshKey]);
 
-  // ── Topic listesinden section tamamlama sayısı (sidebar ve dashboard için) ──
-  const completedCount = sections.filter(s => s.isCompleted).length;
-  const totalCount = sections.length;
-
-  // ── API'den gelen verilerden türetilen değerler ─────────────────────────────
-  // Eğer API veri dönemediyse güvenli varsayılan değerler kullan (NaN önleme)
-  const overallMastery = dashData?.overall_mastery_score ?? 0;
+  // ── Derived ──────────────────────────────────────────────────────────────────
+  const completedCount  = sections.filter(s => s.isCompleted).length;
+  const totalCount      = sections.length;
+  const overallMastery  = dashData?.overall_mastery_score ?? 0;
   const progressPercent = Math.round(overallMastery);
-  const problemsSolved = dashData?.total_problems_passed ?? 0;
-  const totalAttempted = dashData?.total_problems_attempted ?? 0;
-  const percentile = dashData?.percentile ?? 50;
-  const rank = dashData?.rank ?? null;
-  const totalStudents = dashData?.total_students_in_class ?? 0;
-  const firstName = dashData?.user?.first_name ?? 'Developer';
-  const lastName = dashData?.user?.last_name ?? '';
-  const fullName = lastName ? `${firstName} ${lastName}` : firstName;
+  const percentile      = dashData?.percentile ?? 50;
+  const rank            = dashData?.rank ?? null;
+  const totalStudents   = dashData?.total_students_in_class ?? 0;
+  const firstName       = dashData?.user?.first_name ?? '';
+  const lastName        = dashData?.user?.last_name ?? '';
+  const fullName        = lastName ? `${firstName} ${lastName}` : firstName;
+  const nextSection     = sections.find(s => !s.isCompleted);
+  const streakDays      = streakData.streak_days ?? 0;
+  const dayLetters      = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-  // Konu mastery listesi: API'den gelir, yoksa mock başlangıç değerleri
-  const topicProgress = dashData?.all_topics?.map(t => ({
-    name: t.topic_name,
-    // 100 üzerinden normalize et
-    progress: Math.round(t.mastery_score),
-    color: t.mastery_score >= 70 ? 'bg-emerald-500' : t.mastery_score > 0 ? 'bg-blue-500' : 'bg-slate-700',
-  })) ?? [
-    { name: 'Fundamentals', progress: 0, color: 'bg-slate-700' },
-    { name: 'Union-Find', progress: 0, color: 'bg-slate-700' },
-    { name: 'Elementary Sorts', progress: 0, color: 'bg-slate-700' },
-    { name: 'Mergesort', progress: 0, color: 'bg-slate-700' },
-    { name: 'Binary Search Trees', progress: 0, color: 'bg-slate-700' },
-  ];
-
-  // Mini progress bar: solved/attempted oranından dinamik (7 segment)
-  const progressBarSegments = (() => {
-    if (!totalAttempted) return Array(7).fill(0);
-    const ratio = Math.min(problemsSolved / totalAttempted, 1);
-    const filled = Math.round(ratio * 7);
-    return Array(7).fill(0).map((_, i) => i < filled ? 1 : 0);
-  })();
-
-  // Zayıf konular: API'nin weak_topics alanından gelir
   const weakTopics = dashData?.weak_topics?.map(t => ({
-    name: t.topic_name,
+    name:   t.topic_name,
     reason: `Score: ${Math.round(t.mastery_score)}% — ${t.problems_attempted} problems attempted`,
   })) ?? [];
 
-  // "You are here" X pozisyonu:
-  // percentile = PERCENT_RANK(ASC)*100 — kaçıncı dilimde olduğu (0=kötü, 100=iyi)
-  // "Top X%" = 100 - percentile. Grafik 0%(sol)=en iyi, 100%(sağ)=en kötü okunursa:
-  // Top 27% öğrenci → ok 27% konumunda (sola yakın = üst sıralarda)
-  const youAreHerePercent = Math.max(2, Math.min(100 - percentile, 98));
-
-  // ── Yükleme ekranı ──────────────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-[#0f172a] items-center justify-center">
@@ -165,65 +132,64 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         onProblemsClick={onProblemsClick}
         onAnalyticsClick={onAnalyticsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
         progressPercent={totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}
       />
-      <div className="flex-1 ml-72 text-slate-200 p-8 lg:p-12 relative overflow-hidden">
-        {/* Emerald gradient glows — login sayfası sağ tarafı tarzı */}
-        <div className="absolute top-[-15%] right-[-8%] w-[520px] h-[520px] bg-emerald-500 rounded-full blur-[140px] opacity-[0.07] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[5%] w-[420px] h-[420px] bg-emerald-500 rounded-full blur-[120px] opacity-[0.05] pointer-events-none" />
-        <div className="max-w-7xl mx-auto relative z-10">
 
-          {/* Header — kullanıcı ismi API'den dinamik */}
-          <header className="mb-12 flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="flex-1 ml-72 text-slate-200 p-8 lg:p-12">
+        <div className="max-w-7xl mx-auto">
+
+          {/* ── Header ───────────────────────────────────────────────────────── */}
+          <header className="mb-12 flex flex-col md:flex-row md:items-start justify-between gap-6">
             <div>
+              {/* Course code badge */}
+              {(dashData?.class_code || courseName) && (
+                <div className="flex items-center gap-3 mb-4">
+                  {dashData?.class_code && (
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-500 rounded-full text-[10px] font-bold tracking-widest uppercase border border-emerald-500/20">
+                      {dashData.class_code}
+                    </span>
+                  )}
+                  {dashData?.class_name && (
+                    <span className="text-slate-500 text-xs font-medium">{dashData.class_name}</span>
+                  )}
+                </div>
+              )}
               <motion.h1
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="text-4xl font-bold text-white tracking-tight mb-2"
               >
-                Welcome back, <span className="text-emerald-500 italic font-serif">{fullName}</span>!
+                {courseName || dashData?.class_name || 'Dashboard'}
               </motion.h1>
-              <p className="text-slate-400 font-medium">Ready to continue your mastery journey?</p>
-              {/* Sınıf bilgisi badge */}
-              {dashData?.class_code && (
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="mt-3 inline-flex items-center gap-2"
-                >
-                  <span className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                    <Users size={12} className="text-indigo-400" />
-                    <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-widest">{dashData.class_code}</span>
-                    <span className="text-slate-600">·</span>
-                    <span className="text-[11px] text-slate-400">{dashData.class_name}</span>
-                  </span>
-                </motion.div>
+              {fullName && (
+                <p className="text-slate-400 font-medium">Welcome back, {fullName}!</p>
               )}
             </div>
-            {/* Streak: DB'den — submission geçmişindeki ardışık günler */}
+
+            {/* Progress ring */}
             <div className="flex items-center gap-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl px-6 py-3 flex items-center gap-3 shadow-xl">
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
-                  <Flame size={20} />
+              <div className="bg-[#1e293b]/50 border border-slate-800 rounded-2xl px-6 py-4 flex items-center gap-4 shadow-xl">
+                <div className="text-right">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Current Progress</div>
+                  <div className="text-2xl font-black text-white">{progressPercent}%</div>
                 </div>
-                <div>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Streak</div>
-                  <div className="text-lg font-bold text-white">
-                    {streakData.streak_days > 0
-                      ? `${streakData.streak_days} ${streakData.streak_days === 1 ? 'Day' : 'Days'}`
-                      : 'Start Today!'}
-                  </div>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center p-1 relative">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 44 44">
+                    <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="4" className="text-slate-800" />
+                    <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="4" className="text-emerald-500"
+                      strokeDasharray={113} strokeDashoffset={113 - (113 * progressPercent) / 100}
+                    />
+                  </svg>
                 </div>
               </div>
             </div>
           </header>
 
-          {/* ┌─────────────────────────────────────────────────────── */}
-          {/* Spaced Retrieval — Bugün Tekrar Zamanı! */}
-          {/* └─────────────────────────────────────────────────────── */}
+          {/* ── Spaced Review Banner ─────────────────────────────────────────── */}
           {dueReviews.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: -12 }}
@@ -240,7 +206,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
                 <div className="text-xs text-slate-400">
                   {dueReviews.length === 1
-                    ? `“${dueReviews[0].topic_name ?? 'Konu'}” konusundan 1 tekrar sorunuz var.`
+                    ? `"${dueReviews[0].topic_name ?? 'Konu'}" konusundan 1 tekrar sorunuz var.`
                     : `${dueReviews.length} konudan toplam ${dueReviews.length} tekrar sorunuz var.`}
                 </div>
               </div>
@@ -253,275 +219,202 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </motion.div>
           )}
 
+          {/* ── Main Grid ────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-            {/* Sol Kolon: İlerleme ve Konular */}
+            {/* ── Left Column ── */}
             <div className="lg:col-span-2 space-y-8">
 
-              {/* Günlük İlerleme Kartı — API verisiyle */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-8 relative overflow-hidden group"
-              >
-                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl -mr-32 -mt-32 transition-opacity group-hover:opacity-100 opacity-50" />
+              {/* Learning Path */}
+              <div className="bg-[#1e293b]/30 border border-slate-800 rounded-3xl p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <BookOpen size={20} className="text-emerald-500" />
+                    Learning Path
+                  </h2>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                    {completedCount}/{totalCount} Completed
+                  </span>
+                </div>
 
-                <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
-                  {/* Genel Mastery Skoru */}
-                  <div className="flex flex-col justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <BarChart3 size={14} />
-                        Overall Mastery
+                <div className="space-y-4">
+                  {sections.length > 0 ? (
+                    sections.map((section, index) => (
+                      <div
+                        key={section.id}
+                        onClick={() => onSectionSelect(section.id)}
+                        className={cn(
+                          "group flex items-center justify-between p-5 rounded-2xl border transition-all cursor-pointer",
+                          section.isCompleted
+                            ? "bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40"
+                            : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
+                        )}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center border font-bold text-sm transition-all",
+                            section.isCompleted
+                              ? "bg-emerald-500 border-emerald-400 text-slate-950"
+                              : "bg-slate-800 border-slate-700 text-slate-400 group-hover:border-emerald-500/50 group-hover:text-emerald-400"
+                          )}>
+                            {section.isCompleted ? <CheckCircle2 size={20} /> : index + 1}
+                          </div>
+                          <div>
+                            <h3 className={cn("font-bold text-sm mb-0.5", section.isCompleted ? "text-slate-200" : "text-slate-400 group-hover:text-white")}>
+                              {section.title}
+                            </h3>
+                            <p className="text-[11px] text-slate-500">
+                              {section.isCompleted ? 'Review Chapter' : 'Next Chapter'}
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronRight size={18} className="text-slate-700 group-hover:text-emerald-500 transition-colors" />
                       </div>
-                      {/* progressPercent: overall_mastery_score'dan; artık NaN olmayacak */}
-                      <div className="text-5xl font-bold text-white mb-2">{progressPercent}%</div>
-                      <p className="text-slate-400 text-sm">
-                        {dashData?.all_topics?.length ?? 0} topics tracked.
-                      </p>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 px-6 border-2 border-dashed border-slate-800 rounded-3xl bg-slate-950/20">
+                      <BookOpen size={48} className="mx-auto text-slate-700 mb-4 opacity-50" />
+                      <p className="text-slate-500 font-bold tracking-tight">No content has been published for this course yet.</p>
+                      <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-2">Check back soon for updates</p>
                     </div>
-                    <div className="mt-6 h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progressPercent}%` }}
-                        className="h-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"
-                      />
+                  )}
+                </div>
+              </div>
+
+              {/* AI Weak Topics */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-slate-900 border border-slate-800 rounded-3xl p-8"
+              >
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-8 flex items-center gap-2">
+                  <Brain size={14} />
+                  AI Insights: Weak Topics
+                </div>
+                <div className="space-y-4">
+                  {weakTopics.length > 0 ? weakTopics.slice(0, 3).map((topic, i) => (
+                    <div key={i} className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50 group hover:border-emerald-500/30 transition-colors">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="font-bold text-white text-sm">{topic.name}</div>
+                        <Zap size={14} className="text-emerald-500" />
+                      </div>
+                      <div className="text-[11px] text-slate-500 leading-relaxed">{topic.reason}</div>
+                      <button
+                        onClick={onProblemsClick}
+                        className="mt-3 text-[10px] font-bold text-emerald-500 uppercase tracking-widest hover:text-emerald-400 transition-colors flex items-center gap-1"
+                      >
+                        Practice Now <ChevronRight size={10} />
+                      </button>
+                    </div>
+                  )) : (
+                    <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50 text-center">
+                      <div className="text-slate-500 text-sm">Solve some problems to see AI insights!</div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+
+            {/* ── Right Column ── */}
+            <div className="space-y-8">
+
+              {/* Streak Card */}
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="bg-[#1e293b]/30 border border-slate-800 rounded-3xl p-8 relative overflow-hidden"
+              >
+                <div className="absolute -top-12 -right-12 w-32 h-32 bg-orange-500/10 blur-3xl rounded-full" />
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-orange-500/10 rounded-2xl flex items-center justify-center text-orange-500 border border-orange-500/20">
+                    <Flame size={24} fill="currentColor" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mastery Streak</div>
+                    <div className="text-2xl font-black text-white">
+                      {streakDays > 0 ? `${streakDays} ${streakDays === 1 ? 'Day' : 'Days'}` : 'Start Today!'}
                     </div>
                   </div>
+                </div>
 
-                  {/* Çözülen Problem Sayısı */}
-                  <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800/50">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Problems Solved</div>
-                    <div className="flex items-end gap-2">
-                      {/* Gerçek sayı: total_problems_passed */}
-                      <div className="text-3xl font-bold text-white">{problemsSolved}</div>
-                      <div className="text-emerald-500 text-xs font-bold mb-1">of {totalAttempted} attempts</div>
+                <div className="flex justify-between items-end gap-1 px-1">
+                  {dayLetters.map((day, i) => {
+                    const active = i < Math.min(streakDays, 7);
+                    return (
+                      <div key={`${day}-${i}`} className="flex flex-col items-center gap-2">
+                        <div className={cn(
+                          "w-7 h-10 rounded-lg flex items-center justify-center border transition-all",
+                          active
+                            ? "bg-orange-500 border-orange-400 text-slate-950"
+                            : "bg-slate-800 border-slate-700 text-slate-500"
+                        )}>
+                          {active
+                            ? <Check size={14} strokeWidth={4} />
+                            : <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />}
+                        </div>
+                        <span className="text-[8px] font-bold text-slate-500">{day}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+
+              {/* Class Performance */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="bg-[#1e293b]/30 border border-slate-800 rounded-3xl p-8"
+              >
+                <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-wider flex items-center gap-2">
+                  <Users size={16} className="text-slate-400" />
+                  Class Performance
+                </h3>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Your Score</div>
+                    <div className="text-2xl font-bold text-emerald-500">{progressPercent}%</div>
+                  </div>
+                  <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                      {rank ? 'Rank' : 'Students'}
                     </div>
-                    <div className="mt-4 flex gap-1">
-                      {progressBarSegments.map((v, i) => (
-                        <div key={i} className={cn("h-1 flex-1 rounded-full", v ? "bg-emerald-500" : "bg-slate-800")} />
-                      ))}
+                    <div className="text-2xl font-bold text-white">
+                      {rank ? `#${rank}` : totalStudents > 0 ? totalStudents : '—'}
                     </div>
                   </div>
-
-                  {/* Aktif Konu (ilk tamamlanmamış section) */}
-                  <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800/50">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Current Topic</div>
-                    <div className="text-lg font-bold text-white mb-1 truncate">
-                      {sections.find(s => !s.isCompleted)?.title ?? 'All Done!'}
-                    </div>
-                    <div className="text-xs text-slate-500 font-medium mb-4">
-                      {completedCount} of {totalCount} complete
-                    </div>
-                    <button
-                      onClick={() => {
-                        // İlk tamamlanmamış bölüme git
-                        const next = sections.find(s => !s.isCompleted);
-                        if (next) onSectionSelect(next.id);
-                      }}
-                      className="w-full bg-emerald-500 text-slate-950 py-2.5 rounded-xl text-xs font-bold hover:bg-emerald-400 transition-all flex items-center justify-center gap-2"
-                    >
-                      Resume <ChevronRight size={14} />
-                    </button>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
+                  <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center text-slate-400">
+                    <Zap size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Percentile</div>
+                    <div className="text-sm font-black text-white">Top {Math.round(100 - percentile)}%</div>
                   </div>
                 </div>
               </motion.div>
 
-              {/* Topic Mastery + AI Zayıf Konular */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                {/* Konu Mastery Listesi */}
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="bg-slate-900 border border-slate-800 rounded-3xl p-8"
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-8 flex items-center gap-2">
-                    <Target size={14} />
-                    Topic Mastery
-                  </div>
-                  <div className="space-y-6">
-                    {/* En fazla 5 konu göster */}
-                    {topicProgress.slice(0, 5).map((topic, i) => (
-                      <div key={i}>
-                        <div className="flex justify-between text-xs font-bold mb-2">
-                          <span className="text-slate-300 truncate mr-2">{topic.name}</span>
-                          <span className="text-slate-500 flex-shrink-0">{topic.progress}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${topic.progress}%` }}
-                            className={cn("h-full", topic.color)}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-
-                {/* AI Zayıf Konu Önerileri — Backend'den */}
+              {/* Continue Learning CTA */}
+              {nextSection && (
                 <motion.div
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="bg-slate-900 border border-slate-800 rounded-3xl p-8"
+                  className="bg-emerald-500 rounded-3xl p-8 text-slate-950 shadow-2xl shadow-emerald-500/20"
                 >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-8 flex items-center gap-2">
-                    <Brain size={14} />
-                    AI Insights: Weak Topics
-                  </div>
-                  <div className="space-y-4">
-                    {weakTopics.length > 0 ? weakTopics.slice(0, 3).map((topic, i) => (
-                      <div key={i} className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50 group hover:border-emerald-500/30 transition-colors">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="font-bold text-white text-sm">{topic.name}</div>
-                          <Zap size={14} className="text-emerald-500" />
-                        </div>
-                        <div className="text-[11px] text-slate-500 leading-relaxed">{topic.reason}</div>
-                        <button
-                          onClick={onProblemsClick}
-                          className="mt-3 text-[10px] font-bold text-emerald-500 uppercase tracking-widest hover:text-emerald-400 transition-colors flex items-center gap-1"
-                        >
-                          Practice Now <ChevronRight size={10} />
-                        </button>
-                      </div>
-                    )) : (
-                      // Veri yoksa teşvik mesajı
-                      <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50 text-center">
-                        <div className="text-slate-500 text-sm">Solve some problems to see AI insights!</div>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              </div>
-            </div>
-
-            {/* Sağ Kolon: Sınıf, Öneri, Günlük Meydan Okuma */}
-            <div className="space-y-8">
-
-              {/* Sınıf Performansı — API'den percentile ve rank */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-8"
-              >
-                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-6 flex items-center gap-2">
-                  <Users size={14} />
-                  Class Performance
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Your Score</div>
-                    {/* overallMastery: backend'den gelir, artık NaN değil */}
-                    <div className="text-2xl font-bold text-emerald-500">{progressPercent}%</div>
-                  </div>
-                  <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/50">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                      {rank ? 'Rank' : 'Students'}
-                    </div>
-                    <div className="text-2xl font-bold text-white">
-                      {rank ? `#${rank}` : totalStudents > 0 ? `${totalStudents}` : '—'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mb-6">
-                  <div className="flex justify-between items-end mb-2">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Percentile</div>
-                    {/* percentile: backend'den gelir */}
-                    <div className="text-sm font-bold text-white">Top {Math.round(100 - percentile)}%</div>
-                  </div>
-                  <div className="h-24 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={distributionData.length > 0 ? distributionData : [
-                        // Yukleniyor veya bos: hafif bir bell curve goster
-                        {bucket: 0, label:'0-10', count:2}, {bucket:10, label:'10-20', count:5},
-                        {bucket:20, label:'20-30', count:12}, {bucket:30, label:'30-40', count:25},
-                        {bucket:40, label:'40-50', count:40}, {bucket:50, label:'50-60', count:55},
-                        {bucket:60, label:'60-70', count:45}, {bucket:70, label:'70-80', count:30},
-                        {bucket:80, label:'80-90', count:15}, {bucket:90, label:'90-100', count:7},
-                      ]}>
-                        <defs>
-                          <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <XAxis dataKey="bucket" hide />
-                        <Area
-                          type="monotone"
-                          dataKey="count"
-                          stroke="#10b981"
-                          fillOpacity={1}
-                          fill="url(#colorScore)"
-                          strokeWidth={2}
-                        />
-                        <Tooltip
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const d = payload[0].payload;
-                              return (
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-[10px] font-bold">
-                                  {d.label}: {d.count} students
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="relative mt-2">
-                    {/* "You are here" — percentile pozisyonuna gore */}
-                    <div
-                      className="absolute -top-4 transform -translate-x-1/2 transition-all duration-500"
-                      style={{ left: `${youAreHerePercent}%` }}
-                    >
-                      <span className="text-emerald-500 text-[10px] font-bold whitespace-nowrap">▼ You are here</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                      <span>0%</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-
-
-              {/* Devam Et Kartı */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="bg-emerald-500 rounded-3xl p-8 text-slate-950 relative overflow-hidden shadow-2xl shadow-emerald-500/10"
-              >
-                <div className="absolute top-0 right-0 p-4 opacity-20">
-                  <BookOpen size={80} />
-                </div>
-                <div className="relative z-10">
-                  <div className="text-[10px] font-black uppercase tracking-widest mb-6 opacity-60">Next Recommended</div>
-                  <h3 className="text-2xl font-bold mb-2 leading-tight">
-                    {sections.find(s => !s.isCompleted)?.title ?? 'All Topics Complete!'}
-                  </h3>
-                  <p className="text-slate-950/70 text-sm font-medium mb-8">
-                    Continue building your knowledge.
-                  </p>
+                  <div className="text-[10px] font-black uppercase tracking-widest mb-6 opacity-60">Continue Learning</div>
+                  <h3 className="text-2xl font-bold mb-2 leading-tight">{nextSection.title}</h3>
+                  <p className="text-slate-950/70 text-sm font-medium mb-8">Ready to tackle the next topic in your curriculum?</p>
                   <button
-                    onClick={() => {
-                      const next = sections.find(s => !s.isCompleted);
-                      if (next) onSectionSelect(next.id);
-                    }}
-                    className="bg-slate-950 text-white px-6 py-3 rounded-2xl font-bold text-xs hover:bg-slate-900 transition-all flex items-center gap-2 shadow-xl"
+                    onClick={() => onSectionSelect(nextSection.id)}
+                    className="w-full bg-slate-950 text-white py-4 rounded-2xl font-bold text-xs hover:bg-slate-900 transition-all flex items-center justify-center gap-2 shadow-xl"
                   >
-                    Start Lesson <ChevronRight size={14} />
+                    Resume Study <ArrowRight size={14} />
                   </button>
-                </div>
-              </motion.div>
+                </motion.div>
+              )}
             </div>
           </div>
         </div>

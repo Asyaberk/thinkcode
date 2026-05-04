@@ -29,8 +29,12 @@ interface CourseBuilderPageProps {
   onInstructorDashboardClick?: () => void;
   onCourseBuilderClick?: () => void;
   onFlowDesignerClick?: () => void;
+  onEnrollmentManagementClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
+  activeCourseId?: string;  // Course Selection'dan seçilen kurs ID'si
 }
 
 type Tab = 'Topics' | 'Lessons' | 'Questions';
@@ -409,16 +413,22 @@ const CardActions: React.FC<{ onEdit: () => void; onDelete: () => void }> = ({ o
 export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   sections, onDashboardClick, onProblemsClick, onAnalyticsClick,
   onSectionSelect, onInstructorDashboardClick, onCourseBuilderClick,
-  onFlowDesignerClick, onLogout, userRole
+  onFlowDesignerClick, onEnrollmentManagementClick, onLogout, onSwitchCourse, courseName, userRole,
+  activeCourseId
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('Topics');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [weekName, setWeekName] = useState('');
 
-  // Sınıf seçimi — Instructor hangi sınıf için içerik yükleyecek
-  const [selectedClassId, setSelectedClassId] = useState<string>('');
-  const [availableClasses, setAvailableClasses] = useState<{id: string; code: string; name: string}[]>([]);
+  // activeCourseId prop'tan al — class seçici UI kaldırıldı
+  const [selectedClassId, setSelectedClassId] = useState<string>(activeCourseId || '');
+  const [availableClasses] = useState<{id: string; code: string; name: string}[]>([]);
+
+  // activeCourseId prop değişince güncelle
+  useEffect(() => {
+    if (activeCourseId) setSelectedClassId(activeCourseId);
+  }, [activeCourseId]);
 
   // Modal states
   const [editingTopic, setEditingTopic] = useState<DbTopic | null>(null);
@@ -448,19 +458,6 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   const [problems, setProblems] = useState<DbProblem[]>([]);
   const [contentLoading, setContentLoading] = useState(false);
 
-  // Sınıfları yükle
-  useEffect(() => {
-    const loadClasses = async () => {
-      try {
-        const { api } = await import('../api/client');
-        const classes = await api.get<{class_id: string; class_code: string; class_name: string}[]>('/instructor/me/classes');
-        const mapped = classes.map(c => ({ id: c.class_id, code: c.class_code, name: c.class_name }));
-        setAvailableClasses(mapped);
-        if (mapped.length > 0) setSelectedClassId(mapped[0].id);
-      } catch { /* instructor without classes */ }
-    };
-    loadClasses();
-  }, []);
 
   useEffect(() => {
     loadFiles();
@@ -470,7 +467,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   const loadFiles = async () => {
     try {
-      const data = await listResources();
+      const data = await listResources(selectedClassId || undefined);
       setFiles(data);
       data.filter(r => r.status === 'processing').forEach(r => startPolling(r.resource_id));
     } catch { /* ignore */ }
@@ -506,7 +503,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
     if (!file) return;
     setUploading(true); setUploadError('');
     try {
-      const result = await uploadResource(file, weekName.trim() || undefined);
+      const result = await uploadResource(file, weekName.trim() || undefined, selectedClassId || undefined);
       setFiles(prev => [{
         resource_id: result.resource_id, filename: file.name,
         file_type: file.name.split('.').pop() || 'pdf',
@@ -517,11 +514,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         download_url: `/resources/${result.resource_id}/download`,
         created_at: new Date().toISOString(),
       }, ...prev]);
-      try {
-        await processResource(result.resource_id, selectedClassId || undefined);
-        setFiles(prev => prev.map(f => f.resource_id === result.resource_id ? { ...f, status: 'processing' } : f));
-        startPolling(result.resource_id);
-      } catch { /* already processing */ }
+      // NOT auto-processing — instructor clicks "Extract Content" manually
     } catch (err: any) { setUploadError(err.message || 'Upload failed'); }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -655,7 +648,10 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         onInstructorDashboardClick={onInstructorDashboardClick}
         onCourseBuilderClick={onCourseBuilderClick}
         onFlowDesignerClick={onFlowDesignerClick}
+        onEnrollmentManagementClick={onEnrollmentManagementClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout} userRole={userRole}
+        courseName={courseName}
       />
 
       <main className="flex-1 overflow-hidden ml-72 flex flex-col">
@@ -668,28 +664,6 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
               {processingCount > 0 && <span className="ml-2 text-amber-500">· processing {processingCount} file{processingCount > 1 ? 's' : ''}…</span>}
             </p>
           </div>
-          {/* Sınıf seçici */}
-          {availableClasses.length > 0 && (
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Class:</span>
-              <div className="flex gap-2">
-                {availableClasses.map(cls => (
-                  <button
-                    key={cls.id}
-                    onClick={() => setSelectedClassId(cls.id)}
-                    className={cn(
-                      'px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all border',
-                      selectedClassId === cls.id
-                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                        : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:text-slate-300'
-                    )}
-                  >
-                    {cls.code}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Body */}
@@ -837,7 +811,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
                               )}
                               <button
                                 onClick={async () => {
-                                  if (!confirm(`"${file.filename || file.title}" silinsin mi?`)) return;
+                                  if (!confirm(`"${file.filename || 'Bu dosya'}" silinsin mi?`)) return;
                                   try {
                                     const token = localStorage.getItem('access_token') ?? '';
                                     const res = await fetch(

@@ -1,95 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ArrowRight, FileText, Video, Link as LinkIcon, Presentation, Zap, BookOpen } from 'lucide-react';
-import { motion } from 'motion/react';
+import { ArrowRight, FileText, Video, Link as LinkIcon, Presentation, ExternalLink, X, Play } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Lesson, Resource } from '../types';
 import { cn } from '../lib/utils';
-
-export type AdaptiveMode = 'normal' | 'hidden' | 'intro' | 'advanced';
 
 interface LessonContentProps {
   lesson: Lesson;
   onNext: () => void;
-  /**
-   * Adaptive Branch modları:
-   * - 'normal': normal ders (Start Practice butonu)
-   * - 'hidden': ders gösterilmez, sadece "Begin Assessment" (question_first)
-   * - 'intro': giriş seviyesi ders + "Try Again" butonu
-   * - 'advanced': ileri seviye ders + "Next Section" butonu
-   */
-  adaptiveMode?: AdaptiveMode;
 }
 
-export const LessonContent: React.FC<LessonContentProps> = ({
-  lesson,
-  onNext,
-  adaptiveMode = 'normal',
-}) => {
-  const isHidden   = adaptiveMode === 'hidden';
-  const isIntro    = adaptiveMode === 'intro';
-  const isAdvanced = adaptiveMode === 'advanced';
-
-  // question_first: sadece "Begin Assessment" butonu göster
-  if (isHidden) {
-    return (
-      <div className="max-w-4xl mx-auto py-24 px-8 flex flex-col items-center justify-center text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
-        >
-          <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto">
-            <Zap size={36} className="text-emerald-400" />
-          </div>
-          <div>
-            <h2 className="text-3xl font-bold text-white mb-3">{lesson.title}</h2>
-            <p className="text-slate-400 text-base max-w-lg mx-auto leading-relaxed">
-              Bu konuda bilgini ölçeceğiz. Soruyu cevapla — sonuç ne olursa olsun ders içeriği sana göre şekillenecek.
-            </p>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onNext}
-            className="flex items-center gap-3 bg-emerald-500 text-slate-950 px-10 py-4 rounded-2xl font-bold text-base hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 mx-auto"
-          >
-            <Zap size={18} />
-            Begin Assessment
-            <ArrowRight size={18} />
-          </motion.button>
-        </motion.div>
-      </div>
-    );
-  }
-
-  const ctaLabel = isIntro ? 'Try the Question Again' : isAdvanced ? 'Next Section →' : 'Start Practice';
-  const ctaColor = isAdvanced
-    ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-emerald-500/20'
-    : 'bg-indigo-500 text-white hover:bg-indigo-400 shadow-indigo-500/20';
+export const LessonContent: React.FC<LessonContentProps> = ({ lesson, onNext }) => {
+  const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
   return (
     <div className="max-w-4xl mx-auto py-16 px-8">
-      <motion.div
+      <motion.div 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="mb-12"
       >
         <div className="flex items-center gap-2 mb-4">
-          <span className={cn(
-            'px-2.5 py-1 font-bold text-[10px] tracking-widest uppercase rounded-md border',
-            isIntro
-              ? 'bg-red-500/10 text-red-400 border-red-500/20'
-              : isAdvanced
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-          )}>
-            {isIntro ? 'Intro Level' : isAdvanced ? 'Advanced' : 'Module 01'}
+          <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 font-bold text-[10px] tracking-widest uppercase rounded-md border border-emerald-500/20">
+            Module 01
           </span>
           <div className="h-px w-8 bg-slate-800" />
           <span className="text-slate-500 font-medium text-xs uppercase tracking-widest">
-            {isIntro ? 'Başlangıç Seviyesi' : isAdvanced ? 'İleri Seviye' : 'Core Syntax'}
+            Core Syntax
           </span>
         </div>
         <h1 className="text-5xl font-bold text-white tracking-tight leading-[1.1]">
@@ -97,7 +36,7 @@ export const LessonContent: React.FC<LessonContentProps> = ({
         </h1>
       </motion.div>
 
-      <motion.div
+      <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
@@ -150,60 +89,152 @@ export const LessonContent: React.FC<LessonContentProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {lesson.resources.map((resource: Resource) => (
-              <a
-                key={resource.id}
-                href={resource.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-2xl hover:border-emerald-500/30 hover:bg-slate-900 transition-all"
-              >
-                <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center border border-slate-800 group-hover:bg-emerald-500/10 group-hover:border-emerald-500/20 transition-all">
-                  {resource.type === 'PDF'    && <FileText size={18} className="text-rose-400" />}
-                  {resource.type === 'Video'  && <Video size={18} className="text-blue-400" />}
-                  {resource.type === 'Link'   && <LinkIcon size={18} className="text-emerald-400" />}
-                  {resource.type === 'Slides' && <Presentation size={18} className="text-amber-400" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
-                    {resource.title}
+            {lesson.resources.map((resource: Resource) => {
+              const isPreviewable = resource.type === 'PDF' || resource.type === 'Slides';
+              const isVideo = resource.type === 'Video';
+              
+              return (
+                <div
+                  key={resource.id}
+                  className="group flex flex-col p-4 bg-slate-950 border border-slate-800 rounded-2xl hover:border-emerald-500/30 hover:bg-slate-900 transition-all"
+                >
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center border border-slate-800 group-hover:bg-emerald-500/10 group-hover:border-emerald-500/20 transition-all">
+                      {resource.type === 'PDF' && <FileText size={18} className="text-rose-400" />}
+                      {resource.type === 'Video' && <Video size={18} className="text-blue-400" />}
+                      {resource.type === 'Link' && <LinkIcon size={18} className="text-emerald-400" />}
+                      {resource.type === 'Slides' && <Presentation size={18} className="text-amber-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
+                        {resource.title}
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+                        {resource.type} • {resource.description}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
-                    {resource.type} • {resource.description}
+
+                  <div className="flex items-center gap-2 mt-auto">
+                    {isPreviewable ? (
+                      <button
+                        onClick={() => setPreviewResource(resource)}
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white rounded-xl text-xs font-bold transition-all"
+                      >
+                        <Presentation size={14} />
+                        Open Slides
+                      </button>
+                    ) : isVideo ? (
+                      <a
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all"
+                      >
+                        <Play size={14} />
+                        Watch Video
+                      </a>
+                    ) : (
+                      <a
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white rounded-xl text-xs font-bold transition-all"
+                      >
+                        <LinkIcon size={14} />
+                        Visit Link
+                      </a>
+                    )}
+                    
+                    <a
+                      href={resource.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-500 hover:text-white rounded-xl transition-all"
+                      title="Open in new tab"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
                   </div>
                 </div>
-                <ArrowRight size={14} className="text-slate-700 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
-              </a>
-            ))}
+              );
+            })}
           </div>
         </motion.div>
       )}
 
-      <motion.div
+      <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
         className="mt-20 pt-10 border-t border-slate-800 flex items-center justify-between"
       >
         <div className="text-sm text-slate-500 font-medium">
-          {isIntro
-            ? 'Konuyu anladın mı? Aynı soruyu tekrar dene!'
-            : isAdvanced
-            ? 'İleri seviye içeriği tamamladın. Bir sonraki konuya geçmeye hazırsın.'
-            : 'Ready to test your knowledge?'}
+          Ready to test your knowledge?
         </div>
         <button
           onClick={onNext}
-          className={cn(
-            'group flex items-center gap-3 px-10 py-4 rounded-2xl font-bold hover:scale-[1.02] transition-all shadow-lg active:scale-95',
-            ctaColor
-          )}
+          className="group flex items-center gap-3 bg-emerald-500 text-slate-950 px-10 py-4 rounded-2xl font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
         >
-          {isIntro && <BookOpen size={18} />}
-          {ctaLabel}
+          Start Practice
           <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
         </button>
       </motion.div>
+
+      {/* Preview Modal */}
+      <AnimatePresence>
+        {previewResource && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 md:p-8"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full h-full max-w-[90%] max-h-[85%] bg-[#1a2235] rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#1a2235]">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    {previewResource.type === 'PDF' ? <FileText size={16} className="text-rose-400" /> : <Presentation size={16} className="text-amber-400" />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{previewResource.title}</h3>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">{previewResource.type}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={previewResource.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"
+                    title="Open in new tab"
+                  >
+                    <ExternalLink size={18} />
+                  </a>
+                  <button
+                    onClick={() => setPreviewResource(null)}
+                    className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 bg-slate-900">
+                <iframe
+                  src={previewResource.url}
+                  className="w-full h-full border-none"
+                  title={previewResource.title}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

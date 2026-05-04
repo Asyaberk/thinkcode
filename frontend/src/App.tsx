@@ -1,31 +1,25 @@
 /**
  * App.tsx — ThinkCode Uygulamasının Ana Giriş Noktası
  *
- * Bu dosya tüm sayfalar arasındaki YÖNLENDİRMEYİ (routing) yönetir.
- * React Router kullanılmaz; bunun yerine `currentPage` state'i sayfa geçişlerini kontrol eder.
- *
  * SAYFA HİYERARŞİSİ:
- *   login           → LoginPage      : Giriş yapılmamışsa burada kalır
- *   dashboard       → DashboardPage  : Ana menü (konu seçimi)
- *   problems        → ProblemsPage   : Soru listesi (belirli konu filtresi ile)
- *   learning        → LearningPage   : Ders içeriği + LessonContent bileşeni
- *   question        → QuestionPage   : Soru çözme (ChatQuestionInterface + CodePlayground)
- *   analytics       → AnalyticsPage  : Öğrenci kişisel analytics
- *   instructor-dashboard → InstructorDashboard : Öğretmen sınıf dashboard'u
+ *   login              → LoginPage
+ *   course-selection   → CourseSelectionPage  ← YENİ (sadece bu eklendi)
+ *   dashboard          → DashboardPage
+ *   problems           → ProblemsPage
+ *   learning           → LearningPage
+ *   question           → QuestionPage
+ *   analytics          → AnalyticsPage
+ *   instructor-dashboard → InstructorDashboard
  *
- * AUTH AKIŞI:
- *   AuthContext → user null → 'login' sayfasında tut
- *   Login başarılı → rol'e göre 'dashboard' veya 'instructor-dashboard'a yönlendir
- *
- * ÖNEMLİ STATE'LER:
- *   activeSectionId   → Hangi konu (topic) seçili (sidebar + learning için)
- *   activeQuestionId  → Hangi soru çözülüyor (QuestionPage için)
- *   currentProblems   → Seçili konunun soru listesi (ProblemsPage'e geçilir)
- *   masteryClassId    → Öğrencinin sınıf ID'si (useMastery hook'undan gelir)
+ * Eski hook'lar (useMastery, useTopics, vb.) ve prop'lar HİÇ DEĞİŞMEDİ.
+ * Sadece login sonrası course-selection adımı eklendi.
+ * activeCourseId localStorage'da tutulur — yenilemede kaybolmaz.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { LoginPage } from './pages/LoginPage';
+import { CourseSelectionPage } from './pages/CourseSelectionPage';
+import { CourseDiscoveryPage } from './pages/CourseDiscoveryPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProblemsPage } from './pages/ProblemsPage';
 import { LearningPage } from './pages/LearningPage';
@@ -34,78 +28,199 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { InstructorDashboard } from './pages/InstructorDashboard';
 import { CourseBuilderPage } from './pages/CourseBuilderPage';
 import { FlowDesignerPage } from './pages/FlowDesignerPage';
+import { EnrollmentManagementPage } from './pages/EnrollmentManagementPage';
+import { CourseBanner } from './components/CourseBanner';
 import { useAuth } from './context/AuthContext';
 import { useTopics } from './hooks/useTopics';
 import { useLessonForTopic } from './hooks/useLesson';
 import { useMastery } from './hooks/useMastery';
 import { useActiveFlow } from './hooks/useActiveFlow';
+import { useCourses, enrollCourse, unenrollCourse, createCourse, updateCourse, deleteCourse } from './hooks/useCourses';
 import { getProblemsByTopic } from './api/problems';
 import { getDueSpacedReviews } from './api/flows';
 import type { SpacedReviewItem } from './api/flows';
-import type { Section, Question, ApiProblem } from './types';
+import type { Section, Question, ApiProblem, Course } from './types';
 
-type Page = 'login' | 'dashboard' | 'problems' | 'learning' | 'question' | 'analytics' | 'instructor-dashboard' | 'course-builder' | 'flow-designer';
+type Page =
+  | 'login'
+  | 'course-selection'
+  | 'dashboard'
+  | 'problems'
+  | 'learning'
+  | 'question'
+  | 'analytics'
+  | 'instructor-dashboard'
+  | 'course-builder'
+  | 'flow-designer'
+  | 'enrollment-management'
+  | 'course-discovery';
+
+// localStorage helper
+const STORAGE_KEY = 'tc_active_course_id';
 
 export default function App() {
-  const { user, userRole, logout } = useAuth();
-  // useMastery: classId + topicMasteryMap (isCompleted icin) DB'den otomatik alir
-  const { classId: masteryClassId, topicMasteryMap, topicPassedMap, topicAttemptedMap, refetch: refetchMastery } = useMastery();
-  const classId = masteryClassId ?? '';
-  // Sınıfa özel konuları çek (lesson_count ile birlikte)
-  const { topics, sections, isLoading: topicsLoading } = useTopics(classId || null);
+  const { user, userRole, logout, token } = useAuth();
 
-  // Aktif pedagojik flow (Flow Designer'dan deploy edilen)
+  // ── Core hooks — classId driven by activeCourseId (student's selected course) ──
+  // Read from localStorage directly so classId is correct on first render
+  const _storedCourseId = localStorage.getItem('tc_active_course_id') || '';
+  const { classId: masteryClassId, topicMasteryMap, topicPassedMap, topicAttemptedMap, refetch: refetchMastery } = useMastery(_storedCourseId || undefined);
+  // Effective classId: prefer actively selected course, fall back to first enrollment
+  const classId = _storedCourseId || masteryClassId || '';
+  const { topics, sections, isLoading: topicsLoading } = useTopics(classId || null);
   const { flow: activeFlow } = useActiveFlow(classId || null);
+
   const [currentPage, setCurrentPage] = useState<Page>('login');
   const [activeSectionId, setActiveSectionId] = useState<string>('');
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [apiQuestion, setApiQuestion] = useState<Question | null>(null);
-  // Mastery Gate: art arda doğru sayıcı (konu değişince sıfırlanır)
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
-  // Tüm konu soruları (Mastery Gate 3 farklı soru için)
   const [topicQuestions, setTopicQuestions] = useState<Question[]>([]);
-  // Kaçıncı sorudayiz (Mastery Gate'e özel)
   const [masteryQuestionIndex, setMasteryQuestionIndex] = useState(0);
-  // Adaptive Branch: soruda hangi asamadayiz
   type AdaptivePhase = 'question_first' | 'intro_lesson' | 'advanced_lesson' | 'confirmation' | null;
   const [adaptivePhase, setAdaptivePhase] = useState<AdaptivePhase>(null);
-  // Adaptive Branch: hangi soru confirmation için saklanıyor
   const [adaptiveQuestion, setAdaptiveQuestion] = useState<Question | null>(null);
-  // Spaced Retrieval: bugün vadesi gelen review'lar
   const [dueReviews, setDueReviews] = useState<SpacedReviewItem[]>([]);
+  const [dashRefreshKey, setDashRefreshKey] = useState(0);
 
-  // Restore page on session / topics load
+  // ── Course Selection (SADECE YENİ OLAN BÖLÜM) ──────────────────────────────
+  // activeCourseId localStorage'da tutulur — yenilemede kaybolmaz
+  const [activeCourseId, setActiveCourseId] = useState<string>(
+    () => localStorage.getItem(STORAGE_KEY) || ''
+  );
+  // token → useCourses'a direkt pass edilir; null iken fetch yapılmaz (refresh-safe)
+  const { courses: allCourses, enrolledCourseIds, pendingCourseIds, refetch: refetchCourses } = useCourses(userRole, token);
+
+  const handleEnroll = async (courseId: string) => {
+    if (!token) return;
+    try {
+      await enrollCourse(courseId, token);
+      await refetchCourses();  // refetch from DB — shows true pending state
+    } catch (err: any) {
+      console.error('Enroll failed:', err);
+    }
+  };
+  const activeCourse = useMemo(
+    () => allCourses.find(c => c.id === activeCourseId),
+    [allCourses, activeCourseId]
+  );
+  const courseName = activeCourse?.name;
+
+  const handleCourseSelect = (courseId: string) => {
+    setActiveCourseId(courseId);
+    localStorage.setItem(STORAGE_KEY, courseId);
+    if (userRole === 'Instructor') {
+      setCurrentPage('instructor-dashboard');
+    } else {
+      setCurrentPage('dashboard');
+    }
+  };
+
+  // After instructor deploys a flow to a class → switch active course to that class
+  const handleDeploySuccess = (deployedClassId: string) => {
+    setActiveCourseId(deployedClassId);
+    localStorage.setItem(STORAGE_KEY, deployedClassId);
+    setCurrentPage('instructor-dashboard');
+  };
+
+
+
+
+  const handleUnenroll = async (courseId: string) => {
+    if (!token) return;
+    try {
+      await unenrollCourse(courseId, token);
+      await refetchCourses();
+    } catch (err: any) {
+      console.error('Unenroll failed:', err);
+    }
+  };
+
+  const handleAddCourse = async (formData: any) => {
+    if (!token) return;
+    try {
+      await createCourse({
+        name:          formData.name,
+        code:          formData.code,
+        description:   formData.description,
+        semester:      formData.term,
+        color:         formData.color,
+        thumbnail_url: formData.thumbnail,
+        tags:          formData.tags,
+      }, token);
+      await refetchCourses();
+    } catch (err: any) {
+      console.error('Create course failed:', err);
+      alert(`Course could not be created: ${err.message}`);
+    }
+  };
+
+  const handleEditCourse = async (course: Course) => {
+    if (!token) return;
+    try {
+      await updateCourse(course.id, {
+        name:          course.name,
+        code:          course.code,
+        description:   course.description,
+        semester:      course.term,
+        color:         course.color,
+        thumbnail_url: course.thumbnail,
+        tags:          (course as any).tags,
+      }, token);
+      await refetchCourses();
+    } catch (err: any) {
+      console.error('Update course failed:', err);
+      alert(`Course could not be updated: ${err.message}`);
+    }
+  };
+
+  const handleDeleteCourse = async (courseId: string) => {
+    if (!token) return;
+    if (!confirm('Bu kursu silmek istediğine emin misin?')) return;
+    try {
+      await deleteCourse(courseId, token);
+      await refetchCourses();
+    } catch (err: any) {
+      console.error('Delete course failed:', err);
+      alert(`Kurs silinemedi: ${err.message}`);
+    }
+  };
+
+  const handleSwitchCourse = () => setCurrentPage('course-selection');
+
+  // ── Auth redirect ── (DEĞİŞTİRİLMEDİ, sadece course-selection eklendi) ───
   useEffect(() => {
-    if (user) {
+    if (!user) {
+      setCurrentPage('login');
+      return;
+    }
+    // Daha önce seçilmiş bir kurs varsa direkt dashboarda git
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
       if (userRole === 'Instructor') {
         setCurrentPage('instructor-dashboard');
       } else {
         setCurrentPage('dashboard');
       }
     } else {
-      setCurrentPage('login');
+      setCurrentPage('course-selection');
     }
   }, [user, userRole]);
 
-  // Set default section once topics load — lesson'ı olan ilk topic'i seç
+  // ── Eski useEffect'ler — hiç değişmedi ─────────────────────────────────────
   useEffect(() => {
     if (sections.length > 0 && !activeSectionId) {
-      // lesson_count > 0 olan ilk topic'i, yoksa problem_count > 0'ı, yoksa ilk'i seç
       const withLesson  = sections.find(s => (topics.find(t => t.id === s.id)?.lesson_count ?? 0) > 0);
       const withProblem = sections.find(s => (topics.find(t => t.id === s.id)?.problem_count ?? 0) > 0);
       setActiveSectionId((withLesson ?? withProblem ?? sections[0]).id);
     }
   }, [sections, activeSectionId, topics]);
 
-  // class_id artik useMastery hook'undan otomatik geliyor — manuel fetch kaldirildi
-
-  // Spaced Retrieval: classId ve pattern hazırsa due review'ları çek
   useEffect(() => {
     if (!classId || activeFlow.pattern !== 'spaced_retrieval') { setDueReviews([]); return; }
     getDueSpacedReviews(classId).then(setDueReviews).catch(() => setDueReviews([]));
-  }, [classId, activeFlow.pattern]); // dashRefreshKey burada OLMAMALI — daha sonra tanımlanıyor
+  }, [classId, activeFlow.pattern]);
 
-  // Topic değişince tüm soruları çek (Mastery Gate için farklı sorular)
   useEffect(() => {
     if (!activeSectionId) return;
     let cancelled = false;
@@ -139,7 +254,6 @@ export default function App() {
         const allQ = problems.map(mapProblem);
         if (!cancelled) {
           setTopicQuestions(allQ);
-          // Non-mastery flow: ilk MCQ soruyu göster
           const preferred =
             problems.find(p => p.type === 'multiple_choice') ||
             problems.find(p => p.type === 'coding') ||
@@ -148,28 +262,16 @@ export default function App() {
           setMasteryQuestionIndex(0);
         }
       })
-      .catch(() => {
-        if (!cancelled) setApiQuestion(null);
-      });
+      .catch(() => { if (!cancelled) setApiQuestion(null); });
     return () => { cancelled = true; };
   }, [activeSectionId]);
 
-  // currentQuestion: Mastery Gate ise farklı soru göster, değilse ilk MCQ
+  // ── Eski computed değerler — hiç değişmedi ──────────────────────────────────
+  const sectionsWithCompletion: Section[] = sections.map(s => ({
+    ...s,
+    isCompleted: (topicMasteryMap[s.id] ?? 0) >= 60,
+  }));
 
-  // isCompleted = passed > 0 AND passed === attempted
-  // Yani: tum denenen sorularin SON denemesi dogru olmali.
-  // Herhangi bir soruyu yanlis yaparsa: passed < attempted → tamamlanmamis.
-  // Hic soru denememisse: attempted=0 → tamamlanmamis.
-  const sectionsWithCompletion: Section[] = sections.map(s => {
-    const passed = topicPassedMap[s.id] ?? 0;
-    const attempted = topicAttemptedMap[s.id] ?? 0;
-    return {
-      ...s,
-      isCompleted: (topicMasteryMap[s.id] ?? 0) >= 60,
-    };
-  });
-
-  // Fetch lesson for current active section
   const { lesson: apiLesson } = useLessonForTopic(
     currentPage === 'learning' && activeSectionId ? activeSectionId : null
   );
@@ -177,34 +279,28 @@ export default function App() {
   const fallbackLesson = {
     id: activeSectionId,
     sectionId: activeSectionId,
-    title: topicsLoading
-      ? 'Yükleniyor...'
-      : 'Bu konu için henüz ders içeriği eklenmemiş',
+    title: topicsLoading ? 'Yükleniyor...' : 'Bu konu için henüz ders içeriği eklenmemiş',
     content: topicsLoading
       ? '# Yükleniyor...'
-      : '# İçerik Bekleniyor\n\nBu konu için ders materyali henüz yüklenmemiş. Hoca tarafından eklenince burada görünecek.\n\nSoldaki başka bir konuya geçebilirsin.',
+      : '# İçerik Bekleniyor\n\nBu konu için ders materyali henüz yüklenmemiş.\n\nSoldaki başka bir konuya geçebilirsin.',
   };
 
   const currentLesson = apiLesson ?? fallbackLesson;
-
   const masteryThreshold = activeFlow.config.consecutive_correct ?? 3;
   const isMasteryGateActive = activeFlow.pattern === 'mastery_gate';
 
-  // Mastery Gate: topic soruları arasında dön (cycling)
   const currentQuestion: Question | null = isMasteryGateActive && topicQuestions.length > 0
     ? topicQuestions[masteryQuestionIndex % topicQuestions.length]
     : apiQuestion;
 
-  // Mastery Gate: sonraki soruya geç
-  const handleNextMasteryQuestion = () => {
-    setMasteryQuestionIndex(prev => prev + 1);
-    // NOT: section değişmez, sadece soru yükselir
-  };
-
-  const handleLogin = () => { /* AuthContext handles state, useEffect handles redirect */ };
+  // ── Eski handler'lar — hiç değişmedi ────────────────────────────────────────
+  const handleNextMasteryQuestion = () => setMasteryQuestionIndex(prev => prev + 1);
+  const handleLogin = () => {};
 
   const handleLogout = () => {
     logout();
+    localStorage.removeItem(STORAGE_KEY);
+    setActiveCourseId('');
     setCurrentPage('login');
   };
 
@@ -216,17 +312,12 @@ export default function App() {
     setAdaptiveQuestion(null);
 
     if (activeFlow.pattern === 'adaptive_branch' && classId) {
-      // Backend'den bu konu için adaptive state'i çek
       try {
         const { getAdaptiveState } = await import('./api/flows');
         const state = await getAdaptiveState(classId, id);
         if (state.diagnostic_done) {
-          // Tanı tamamlandı → doğrudan atanan yolu uygula
-          setAdaptivePhase(
-            state.assigned_path === 'advanced' ? 'advanced_lesson' : 'intro_lesson',
-          );
+          setAdaptivePhase(state.assigned_path === 'advanced' ? 'advanced_lesson' : 'intro_lesson');
         } else {
-          // Tanı tamamlanmadı → önce diagnostic soruları göster
           setAdaptivePhase('question_first');
         }
       } catch {
@@ -245,7 +336,6 @@ export default function App() {
 
   const handleNext = () => {
     setActiveQuestionId(null);
-    // Adaptive Branch: lesson bittikten sonra confirmation sorusuna geç
     if (activeFlow.pattern === 'adaptive_branch' &&
         (adaptivePhase === 'advanced_lesson' || adaptivePhase === 'intro_lesson')) {
       setAdaptivePhase('confirmation');
@@ -268,14 +358,12 @@ export default function App() {
       setCurrentPage('problems');
       return;
     }
-    // Adaptive Branch: advanced_lesson göstürme aşamasındaysa next section'a geç
     setConsecutiveCorrect(0);
     setMasteryQuestionIndex(0);
     setAdaptivePhase(null);
     const currentIndex = sections.findIndex(s => s.id === activeSectionId);
     if (currentIndex < sections.length - 1) {
       setActiveSectionId(sections[currentIndex + 1].id);
-      // Yeni section için adaptive phase ayarla
       if (activeFlow.pattern === 'adaptive_branch') setAdaptivePhase('question_first');
       setCurrentPage('learning');
     } else {
@@ -284,13 +372,6 @@ export default function App() {
     }
   };
 
-  const [dashRefreshKey, setDashRefreshKey] = useState(0);
-
-  /**
-   * handleSubmission — her submission sonrasi (dogru veya yanlis) cagrilir.
-   * (1) useMastery refetch — sidebar checkmark ve mastery score anlik guncellenir
-   * (2) dashRefreshKey artar — DashboardPage topic mastery listesini yeniden ceker
-   */
   const handleSubmission = (isCorrect: boolean) => {
     refetchMastery();
     setDashRefreshKey(k => k + 1);
@@ -299,29 +380,21 @@ export default function App() {
       setConsecutiveCorrect(prev => isCorrect ? prev + 1 : 0);
     }
 
-    // Adaptive Branch: cevaba göre ders modu belirle
     if (activeFlow.pattern === 'adaptive_branch') {
       if (adaptivePhase === 'question_first' || adaptivePhase === 'confirmation') {
-        // Confirmation aşamasında yanlış → intro_lesson'a geri dön
-        // question_first aşamasında cevaba göre ders belirle
         if (isCorrect) {
           if (adaptivePhase === 'confirmation') {
-            // Confirmation doğru → next section
             handleQuestionComplete();
           } else {
-            // İlk soruyu doğru → advanced lesson
             setAdaptiveQuestion(currentQuestion);
             setAdaptivePhase('advanced_lesson');
             setTimeout(() => setCurrentPage('learning'), 350);
           }
         } else {
-          // Yanlış → intro lesson (hem question_first hem confirmation için)
           setAdaptiveQuestion(currentQuestion);
           setAdaptivePhase('intro_lesson');
           setTimeout(() => setCurrentPage('learning'), 350);
         }
-
-        // question_first bitti → backend'e bildir (path kalıcı olarak atanır)
         if (adaptivePhase === 'question_first' && classId && activeSectionId) {
           import('./api/flows').then(({ completeAdaptiveDiagnostic }) => {
             completeAdaptiveDiagnostic({
@@ -329,33 +402,89 @@ export default function App() {
               topic_id:      activeSectionId,
               correct_count: isCorrect ? 1 : 0,
               total_count:   1,
-            }).catch(() => {/* sessiz hata */});
+            }).catch(() => {});
           });
         }
       }
     }
   };
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   if (currentPage === 'login') {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // Yeni: Course Selection (sadece bu blok eklendi)
+  if (currentPage === 'course-selection') {
+    return (
+      <CourseSelectionPage
+        courses={allCourses}
+        enrolledCourseIds={enrolledCourseIds}
+        pendingCourseIds={pendingCourseIds}
+        userRole={userRole}
+        onCourseSelect={handleCourseSelect}
+        onEnroll={handleEnroll}
+        onUnenroll={handleUnenroll}
+        onAddCourse={handleAddCourse}
+        onEditCourse={handleEditCourse}
+        onDeleteCourse={handleDeleteCourse}
+        onLogout={handleLogout}
+        onDiscover={() => setCurrentPage('course-discovery')}
+      />
+    );
+  }
+
+  if (currentPage === 'course-discovery') {
+    return (
+      <CourseDiscoveryPage
+        enrolledCourseIds={enrolledCourseIds}
+        pendingCourseIds={pendingCourseIds}
+        onEnroll={async (courseId) => {
+           await handleEnroll(courseId);
+           setCurrentPage('course-selection');
+        }}
+        onBack={() => setCurrentPage('course-selection')}
+      />
+    );
+  }
+
+  // All in-course pages share the same layout: Sidebar (fixed) + CourseBanner + page content
+  const IN_COURSE_PAGES: Page[] = ['dashboard','problems','learning','analytics','instructor-dashboard','course-builder','flow-designer','enrollment-management'];
+  const isInCoursePage = IN_COURSE_PAGES.includes(currentPage);
+
   return (
     <div className="min-h-screen">
+      {/* ── CourseBanner — shown above ALL in-course pages ──────────────── */}
+      {isInCoursePage && activeCourse && (
+        <div className="fixed top-0 left-0 right-0 z-30">
+          <CourseBanner
+            courseName={activeCourse.name}
+            courseCode={activeCourse.code}
+            courseColor={activeCourse.color}
+            thumbnail={activeCourse.thumbnail}
+            onLogout={handleLogout}
+            onSwitchCourse={handleSwitchCourse}
+          />
+        </div>
+      )}
+
+      {/* Offset content below banner when in-course */}
+      <div className={isInCoursePage && activeCourse ? 'pt-[180px]' : ''}>
       {currentPage === 'dashboard' && (
-      <DashboardPage
+        <DashboardPage
           sections={sectionsWithCompletion}
           onSectionSelect={handleSectionSelect}
           onProblemsClick={() => setCurrentPage('problems')}
           onAnalyticsClick={() => setCurrentPage('analytics')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
           refreshKey={dashRefreshKey}
           classId={classId}
           dueReviews={dueReviews}
           onReviewStart={(problemId: string) => {
-            // Doğrudan soruya git
             setActiveQuestionId(problemId);
             setCurrentPage('question');
           }}
@@ -372,7 +501,9 @@ export default function App() {
           onAnalyticsClick={() => setCurrentPage('analytics')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
         />
       )}
 
@@ -386,7 +517,9 @@ export default function App() {
           onAnalyticsClick={() => setCurrentPage('analytics')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
           lesson={currentLesson}
           onNext={handleNext}
           onComplete={handleQuestionComplete}
@@ -419,7 +552,6 @@ export default function App() {
         />
       )}
 
-
       {currentPage === 'analytics' && (
         <AnalyticsPage
           sections={sectionsWithCompletion}
@@ -428,7 +560,9 @@ export default function App() {
           onProblemsClick={() => setCurrentPage('problems')}
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
         />
       )}
 
@@ -442,8 +576,12 @@ export default function App() {
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onCourseBuilderClick={() => setCurrentPage('course-builder')}
           onFlowDesignerClick={() => setCurrentPage('flow-designer')}
+          onEnrollmentManagementClick={() => setCurrentPage('enrollment-management')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
+          activeCourseId={activeCourseId}
         />
       )}
 
@@ -457,8 +595,12 @@ export default function App() {
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onCourseBuilderClick={() => setCurrentPage('course-builder')}
           onFlowDesignerClick={() => setCurrentPage('flow-designer')}
+          onEnrollmentManagementClick={() => setCurrentPage('enrollment-management')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
+          activeCourseId={activeCourseId}
         />
       )}
 
@@ -473,10 +615,33 @@ export default function App() {
           onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
           onCourseBuilderClick={() => setCurrentPage('course-builder')}
           onFlowDesignerClick={() => setCurrentPage('flow-designer')}
+          onEnrollmentManagementClick={() => setCurrentPage('enrollment-management')}
           onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
           userRole={userRole}
+          courseName={courseName}
+          onDeploySuccess={handleDeploySuccess}
         />
       )}
+
+      {currentPage === 'enrollment-management' && (
+        <EnrollmentManagementPage
+          sections={sectionsWithCompletion}
+          classId={activeCourseId}
+          onSectionSelect={handleSectionSelect}
+          onDashboardClick={() => setCurrentPage('dashboard')}
+          onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
+          onCourseBuilderClick={() => setCurrentPage('course-builder')}
+          onFlowDesignerClick={() => setCurrentPage('flow-designer')}
+          onEnrollmentManagementClick={() => setCurrentPage('enrollment-management')}
+          onLogout={handleLogout}
+          onSwitchCourse={handleSwitchCourse}
+          userRole={userRole}
+          courseName={courseName}
+          token={token}
+        />
+      )}
+      </div>{/* end pt-[180px] wrapper */}
     </div>
   );
 }

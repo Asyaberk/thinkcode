@@ -31,7 +31,7 @@ def _now():
 # ENUMS
 # ─────────────────────────────────────────────────────────────
 UserRoleEnum         = Enum("student", "instructor", "admin",       name="user_role")
-EnrollmentStatusEnum = Enum("active", "dropped", "completed",       name="enrollment_status")
+EnrollmentStatusEnum = Enum("pending", "active", "dropped", "completed", "rejected", name="enrollment_status")
 ProblemTypeEnum      = Enum("coding", "multiple_choice", "open_response", name="problem_type")
 DifficultyEnum       = Enum("easy", "medium", "hard",               name="difficulty_level")
 SubmissionStatusEnum = Enum("pending", "passed", "failed", "grading", name="submission_status")
@@ -91,6 +91,12 @@ class Class(Base):
     academic_year = Column(Integer)
     is_active     = Column(Boolean, nullable=False, default=True)
     created_at    = Column(DateTime(timezone=True), default=_now)
+    # CourseSelectionPage görsel alanları
+    description   = Column(Text, nullable=True)
+    color         = Column(String(20), nullable=True, default="#10b981")   # hex renk
+    thumbnail_url = Column(String(500), nullable=True)                     # kapak görseli URL
+    # Etiketler — virgülle ayrılmış string olarak saklanır: "AI,Machine Learning,Python"
+    tags          = Column(Text, nullable=True, default="")
 
     instructor    = relationship("User", back_populates="classes")
     enrollments   = relationship("Enrollment", back_populates="cls")
@@ -105,8 +111,9 @@ class Enrollment(Base):
     id          = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     student_id  = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     class_id    = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
-    status      = Column(EnrollmentStatusEnum, nullable=False, default="active")
-    enrolled_at = Column(DateTime(timezone=True), default=_now)
+    status       = Column(EnrollmentStatusEnum, nullable=False, default="pending")
+    enrolled_at  = Column(DateTime(timezone=True), default=_now)
+    requested_at = Column(DateTime(timezone=True), default=_now)
 
     student     = relationship("User", back_populates="enrollments")
     cls         = relationship("Class", back_populates="enrollments")
@@ -249,7 +256,7 @@ class Submission(Base):
     id                 = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     student_id         = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     problem_id         = Column(UUID(as_uuid=False), ForeignKey("problems.id", ondelete="CASCADE"), nullable=False)
-    class_id           = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    class_id           = Column(UUID(as_uuid=False), ForeignKey("classes.id", ondelete="SET NULL"), nullable=True)
     submitted_code     = Column(Text)
     submitted_answer   = Column(Text)
     selected_option_id = Column(UUID(as_uuid=False), ForeignKey("problem_options.id", ondelete="SET NULL"))
@@ -448,6 +455,13 @@ class CourseResource(Base):
         UUID(as_uuid=False),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+    )
+
+    # Hangi derse ait (opsiyonel — process sırasında set edilir)
+    class_id        = Column(
+        UUID(as_uuid=False),
+        ForeignKey("classes.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # Orijinal dosya adı (kullanıcıya gösterilir)

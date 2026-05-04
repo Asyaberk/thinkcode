@@ -18,6 +18,8 @@ interface LearningPageProps {
   onAnalyticsClick: () => void;
   onInstructorDashboardClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
   lesson: Lesson;
   onNext: () => void;
@@ -71,6 +73,8 @@ export const LearningPage: React.FC<LearningPageProps> = ({
   onAnalyticsClick,
   onInstructorDashboardClick,
   onLogout,
+  onSwitchCourse,
+  courseName,
   userRole,
   lesson,
   onNext,
@@ -135,8 +139,10 @@ export const LearningPage: React.FC<LearningPageProps> = ({
         onProblemsClick={onProblemsClick}
         onAnalyticsClick={onAnalyticsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
         progressPercent={sections.length > 0 ? Math.round((sections.filter(s => s.isCompleted).length / sections.length) * 100) : 0}
         lockedSectionIds={lockedSectionIds}
         flowPattern={flowPattern}

@@ -45,8 +45,13 @@ interface FlowDesignerPageProps {
   onInstructorDashboardClick?: () => void;
   onCourseBuilderClick?: () => void;
   onFlowDesignerClick?: () => void;
+  onEnrollmentManagementClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
   userRole?: UserRole;
+  /** Called after successful deploy — receives the class_id deployed to */
+  onDeploySuccess?: (classId: string) => void;
 }
 
 type NodeType = 
@@ -121,8 +126,17 @@ const NODE_CATEGORIES: Record<string, { label: string; nodes: { type: NodeType; 
   }
 };
 
+// ── Template display name → backend API pattern identifier ───────────────────
+const PATTERN_ID: Record<string, string> = {
+  'Socratic Retry':  'socratic_retry',
+  'Mastery Gate':    'mastery_gate',
+  'Spaced Retrieval':'spaced_retrieval',
+  'Adaptive Branch': 'adaptive_branch',
+};
+
 const TEMPLATES = {
   'Socratic Retry': {
+    pattern: 'socratic_retry',   // ← backend API identifier
     nodes: [
       { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Introduction', config: {} },
       { id: '2', type: 'CONCEPTUAL', x: 270, y: 200, label: 'Concept Check', config: {} },
@@ -146,6 +160,7 @@ const TEMPLATES = {
     referenceShort: 'Macina et al. (2023) · EMNLP · arXiv:2305.14536',
   },
   'Mastery Gate': {
+    pattern: 'mastery_gate',
     nodes: [
       { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Core Concept', config: {} },
       { id: '2', type: 'CODING', x: 270, y: 200, label: 'Practice Task', config: {} },
@@ -165,6 +180,7 @@ const TEMPLATES = {
     referenceShort: 'İlic et al. (2022) · PubMed',
   },
   'Spaced Retrieval': {
+    pattern: 'spaced_retrieval',
     nodes: [
       { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Initial Learning', config: {} },
       { id: '2', type: 'SPACED_REVIEW', x: 270, y: 200, label: 'Review Cycle', config: { review_days: [1, 3, 7] } },
@@ -181,6 +197,7 @@ const TEMPLATES = {
     referenceShort: 'Carpenter et al. (2022) · Nature',
   },
   'Adaptive Branch': {
+    pattern: 'adaptive_branch',
     nodes: [
       { id: '1', type: 'MULTIPLE_CHOICE', x: 60, y: 200, label: 'Diagnostic', config: {} },
       { id: '2', type: 'SCORE_CHECK', x: 270, y: 200, label: 'Check Level', config: { threshold_score: 70 } },
@@ -219,22 +236,28 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   onInstructorDashboardClick,
   onCourseBuilderClick,
   onFlowDesignerClick,
+  onEnrollmentManagementClick,
   onLogout,
-  userRole
+  onSwitchCourse,
+  courseName,
+  userRole,
+  onDeploySuccess,
 }) => {
   // — Gerçek sınıf listesi API'den —
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
 
-  // Seçilen sınıf: ilk sınıf otomatik seçilir
-  const [activeClassId, setActiveClassId] = React.useState<string>('');
+  // Seçilen sınıf: App.tsx'ten gelen classId prop → sonra dropdown ile değiştirilebilir
+  const [activeClassId, setActiveClassId] = React.useState<string>(classIdProp || '');
   const activeClass = instructorClasses.find(c => c.class_id === activeClassId) ?? instructorClasses[0];
 
-  // Sınıf listesi yüklenince ilk sınıfı seç
+  // Sınıf listesi yüklenince: prop'tan gelen classId varsa onu, yoksa ilk sınıfı seç
   React.useEffect(() => {
     if (instructorClasses.length > 0 && !activeClassId) {
-      setActiveClassId(instructorClasses[0].class_id);
+      // classIdProp ile eşleşen varsa onu kullan, yoksa listedeki ilki
+      const preferred = instructorClasses.find(c => c.class_id === classIdProp);
+      setActiveClassId((preferred ?? instructorClasses[0]).class_id);
     }
-  }, [instructorClasses, activeClassId]);
+  }, [instructorClasses, activeClassId, classIdProp]);
 
   // Sınıf değişince flow ID'yi sıfırla — her sınıfın flow'u bağımsız
   const handleClassChange = (classId: string) => {
@@ -328,14 +351,14 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   const handleSaveDraft = async () => {
     const targetClassId = activeClass?.class_id;
     if (!targetClassId) {
-      showToast('⚠️ Sınıf seçili değil. Lütfen önce bir sınıf seçin.', 'error');
+      showToast('⚠️ No class selected. Please select a class first.', 'error');
       return;
     }
     setIsSaving(true);
     try {
       const payload = {
         class_id: targetClassId,
-        pattern: activePattern,
+        pattern: TEMPLATES[activePattern as keyof typeof TEMPLATES].pattern,
         flow_json: buildFlowJson(),
         config: buildConfig(),
       };
@@ -348,9 +371,9 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
         setSavedFlowId(result.id);
       }
       setFlowStatus('SAVED');
-      showToast(`✓ Flow "${activeClass?.class_code}" için kaydedildi.`);
+      showToast(`✓ Flow saved for "${activeClass?.class_code}".`);
     } catch (err: any) {
-      showToast(`Kaydetme hatası: ${err.message}`, 'error');
+      showToast(`Save error: ${err.message}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -359,31 +382,34 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   const handleDeploy = async () => {
     const targetClassId = activeClass?.class_id;
     if (!targetClassId) {
-      showToast('⚠️ Sınıf seçili değil.', 'error');
+      showToast('⚠️ No class selected.', 'error');
       return;
     }
     setIsDeploying(true);
     try {
       let flowId = savedFlowId;
+      const apiPattern = PATTERN_ID[activePattern] ?? activePattern;
       if (!flowId) {
         const saved = await saveDraftFlow({
           class_id: targetClassId,
-          pattern: activePattern,
+          pattern: apiPattern,
           flow_json: buildFlowJson(),
           config: buildConfig(),
         });
         flowId = saved.id;
         setSavedFlowId(flowId);
       } else {
-        await updateFlow(flowId, { flow_json: buildFlowJson(), config: buildConfig() });
+        await updateFlow(flowId, { pattern: apiPattern, flow_json: buildFlowJson(), config: buildConfig() });
       }
 
-      await deployFlow(flowId);
+      await deployFlow(flowId!);
       setFlowStatus('LIVE');
-      refetchClasses();  // Sınıf listesindeki has_live_flow güncelle
-      showToast(`🚀 "${activePattern}" patternı ${activeClass?.class_code} sınıfına deploy edildi!`);
+      refetchClasses();
+      showToast(`🚀 "${activePattern}" deployed to ${activeClass?.class_code}!`);
+      // Navigate instructor to the course they just deployed to
+      onDeploySuccess?.(targetClassId);
     } catch (err: any) {
-      showToast(`Deploy hatası: ${err.message}`, 'error');
+      showToast(`Deploy error: ${err.message}`, 'error');
     } finally {
       setIsDeploying(false);
     }
@@ -409,8 +435,11 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
         onInstructorDashboardClick={onInstructorDashboardClick}
         onCourseBuilderClick={onCourseBuilderClick}
         onFlowDesignerClick={onFlowDesignerClick}
+        onEnrollmentManagementClick={onEnrollmentManagementClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
       />
 
       <div className="flex-1 flex flex-col ml-72 overflow-hidden">
@@ -421,33 +450,16 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Build the student experience, node by node</p>
           </div>
 
-          {/* Gerçek Sınıf Seçici */}
-          <div className="flex items-center gap-2 bg-slate-900/50 p-1 rounded-full border border-slate-800">
-            {instructorClasses.length === 0 ? (
-              <span className="px-4 py-1.5 text-[10px] text-slate-500">Sınıf yükleniyor...</span>
-            ) : (
-              instructorClasses.map(cls => (
-                <button
-                  key={cls.class_id}
-                  onClick={() => handleClassChange(cls.class_id)}
-                  className={cn(
-                    "px-4 py-1.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5",
-                    activeClassId === cls.class_id
-                      ? "bg-[#00e5a0] text-slate-950 shadow-lg shadow-emerald-500/20"
-                      : "text-slate-500 hover:text-slate-300"
-                  )}
-                >
-                  {cls.class_code}
-                  {cls.has_live_flow && (
-                    <span className={cn(
-                      "w-1.5 h-1.5 rounded-full",
-                      activeClassId === cls.class_id ? "bg-slate-950" : "bg-[#00e5a0]"
-                    )} />
-                  )}
-                </button>
-              ))
-            )}
-          </div>
+          {/* Aktif ders göstergesi */}
+          {activeClass && (
+            <div className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-full flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-[11px] font-bold text-slate-300">{activeClass.class_code}</span>
+              {activeClass.has_live_flow && (
+                <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Live</span>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
             <button 
@@ -469,7 +481,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
         </header>
 
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel: Quick Templates only */}
+          {/* Left Panel: Quick Templates + Node Palette */}
           <aside className="w-[220px] bg-[#1a2235] border-r border-slate-800 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-800">
               <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Quick Templates</h2>
@@ -497,6 +509,35 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
                     <div className="text-[8px] text-slate-500 font-medium leading-tight">{tmpl.referenceShort}</div>
                   </button>
                 ))}
+              </div>
+
+              {/* ── Node Palette ──────────────────────────────── */}
+              <div className="pt-3 border-t border-slate-800">
+                <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Add Nodes</p>
+                <div className="space-y-3">
+                  {Object.entries(NODE_CATEGORIES).map(([catKey, cat]) => (
+                    <div key={catKey}>
+                      <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-1.5">{cat.label}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {cat.nodes.map((n) => {
+                          const Icon = n.icon;
+                          return (
+                            <button
+                              key={n.type}
+                              onClick={() => handleAddNode(n.type, n.label)}
+                              title={`Add ${n.label} node`}
+                              className="flex items-center gap-1 px-2 py-1 bg-slate-900/60 border border-slate-700 hover:border-[#00e5a0]/40 hover:bg-[#00e5a0]/5 rounded-lg text-[9px] font-bold text-slate-300 transition-all"
+                              style={{ borderLeftColor: n.color, borderLeftWidth: 2 }}
+                            >
+                              <Icon size={8} style={{ color: n.color }} />
+                              {n.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </aside>

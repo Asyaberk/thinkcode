@@ -234,7 +234,32 @@ export type UserProgress = {
 
 // ── Courses ───────────────────────────────────────────────────────────────────
 export type Course = {
-  id: string;
-  name: string;
-  role: string;
+  id: string;                    // class_id (UUID)
+  name: string;                  // class_name
+  code: string;                  // class_code e.g. "CMPE211"
+  description: string;
+  role: UserRole;                // 'Student' | 'Instructor'
+  instructorName: string;
+  term: string;                  // semester string e.g. "Spring 2025"
+  studentsCount?: number;
+  activeStudentsCount?: number;
+  progress?: number;             // öğrenci için 0-100
+  thumbnail?: string;            // kapak görsel URL
+  certificateImage?: string;
+  color: string;                 // hex renk
+  tags?: string;                 // virgülle ayrılmış etiketler: "AI,Python,ML"
+  enrollmentStatus?: string | null; // 'pending' | 'active' | 'rejected' | null
 };
+
+export interface BasePageProps {
+  sections: Section[];
+  courses?: Course[];
+  activeCourseId?: string;
+  activeCourse?: Course;
+  onCourseChange?: (id: string) => void;
+  onSectionSelect: (id: string) => void;
+  onLogout: () => void;
+  onSwitchCourse?: () => void;
+  courseName?: string;
+  userRole: UserRole;
+}

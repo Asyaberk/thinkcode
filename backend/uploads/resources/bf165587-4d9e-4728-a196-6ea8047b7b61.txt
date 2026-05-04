@@ -1,0 +1,74 @@
+# CS 201 - Advanced Algorithms: MergeSort Optimization and Applications
+
+## Overview
+MergeSort is one of the most important sorting algorithms due to its guaranteed O(n log n) complexity.
+This lecture covers optimizations and real-world applications.
+
+## Why MergeSort Matters
+Unlike QuickSort which has O(n²) worst case, MergeSort guarantees O(n log n) in ALL cases.
+This predictability is crucial for production systems.
+
+## Key Optimizations
+1. Cutoff to Insertion Sort for small subarrays (n < 10)
+   - Insertion sort faster in practice for tiny arrays due to lower overhead
+   - Reduces recursion depth and constant factors
+
+2. Skip merge if already sorted
+   - If a[mid] <= a[mid+1], the two halves are already in order
+   - No merge needed! Reduces to O(n) for nearly-sorted arrays
+
+3. Alternate between auxiliary and original array to avoid extra copy
+
+## Implementation with Cutoff
+```java
+private static final int CUTOFF = 7;
+
+private static void sort(Comparable[] src, Comparable[] dst, int lo, int hi) {
+    if (hi <= lo + CUTOFF) {
+        insertionSort(dst, lo, hi);
+        return;
+    }
+    int mid = lo + (hi - lo) / 2;
+    sort(dst, src, lo, mid);
+    sort(dst, src, mid+1, hi);
+    
+    // Skip merge if already in order (optimization)
+    if (!less(src[mid+1], src[mid])) {
+        System.arraycopy(src, lo, dst, lo, hi-lo+1);
+        return;
+    }
+    merge(src, dst, lo, mid, hi);
+}
+```
+
+## Applications
+- External Sort: Files too large for RAM — MergeSort works in passes over disk
+- TimSort: Python and Java's built-in sort uses MergeSort variant
+- Stable Sort: Preserves equal element ordering (crucial for multi-field sorting)
+- Inversion Count: Count pairs (i,j) where i<j but a[i]>a[j] — modified MergeSort
+
+## Stability
+A sorting algorithm is STABLE if equal elements maintain their original relative order.
+MergeSort is stable. QuickSort (standard) is NOT stable.
+
+## Space-Time Tradeoff
+MergeSort: O(n log n) time, O(n) space
+QuickSort: O(n log n) avg time, O(log n) space — in-place
+In-place MergeSort: O(n log² n) time, O(1) space — impractical
+
+## Practice Problems
+Q: The cutoff optimization for MergeSort switches to ___ for small subarrays.
+Options: QuickSort, HeapSort, InsertionSort, BubbleSort
+Answer: InsertionSort
+
+Q: MergeSort with the "already sorted" optimization achieves ___ on nearly-sorted input.
+Options: O(1), O(n), O(n log n), O(n²)
+Answer: O(n)
+
+Q: MergeSort is ___ while standard QuickSort is not.
+Options: stable, in-place, faster, recursive
+Answer: stable
+
+Q: TimSort, used in Python and Java, is based on ___.
+Options: QuickSort, MergeSort, HeapSort, RadixSort
+Answer: MergeSort

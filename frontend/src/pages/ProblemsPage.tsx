@@ -28,9 +28,11 @@ interface ProblemsPageProps {
   onPlaygroundClick?: () => void;
   onInstructorDashboardClick?: () => void;
   onLogout?: () => void;
+  onSwitchCourse?: () => void;
   userRole?: UserRole;
   sections: any[];
-  classId?: string;  // Sınıfa göre filtreleme için
+  classId?: string;
+  courseName?: string;
 }
 
 export const ProblemsPage: React.FC<ProblemsPageProps> = ({
@@ -41,9 +43,11 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
   onPlaygroundClick,
   onInstructorDashboardClick,
   onLogout,
+  onSwitchCourse,
   userRole,
   sections,
   classId,
+  courseName,
 }) => {
   // ── State ────────────────────────────────────────────────────────────────────
   const [problems, setProblems] = useState<ApiProblem[]>([]);
@@ -120,8 +124,10 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
         onDashboardClick={onDashboardClick}
         onAnalyticsClick={onAnalyticsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
+        onSwitchCourse={onSwitchCourse}
         onLogout={onLogout}
         userRole={userRole}
+        courseName={courseName}
         progressPercent={sections.length > 0 ? Math.round((sections.filter(s => s.isCompleted).length / sections.length) * 100) : 0}
       />
 

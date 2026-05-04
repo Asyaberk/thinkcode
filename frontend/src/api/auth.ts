@@ -25,6 +25,23 @@ export async function login(email: string, password: string): Promise<{ token: s
   return { token: data.access_token, user };
 }
 
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  role: 'student' | 'instructor';
+}
+
+export async function register(payload: RegisterPayload): Promise<{ token: string; user: AuthUser }> {
+  const data = await api.post<LoginResponse>('/auth/register', payload);
+  localStorage.setItem('access_token', data.access_token);
+
+  const user = await getMe();
+  localStorage.setItem('user', JSON.stringify(user));
+  return { token: data.access_token, user };
+}
+
 export async function getMe(): Promise<AuthUser> {
   return api.get<AuthUser>('/auth/me');
 }

@@ -52,7 +52,7 @@ interface UseMasteryResult {
   refetch: () => void;
 }
 
-export function useMastery(): UseMasteryResult {
+export function useMastery(targetClassId?: string): UseMasteryResult {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +69,12 @@ export function useMastery(): UseMasteryResult {
     let cancelled = false;
     setIsLoading(true);
 
-    // GET /api/v1/analytics/me/dashboard — mastery, percentile, class_id
-    api.get<DashboardData>('/analytics/me/dashboard')
+    // class_id query param ile belirtilmişse onu kullan
+    const endpoint = targetClassId
+      ? `/analytics/me/dashboard?class_id=${targetClassId}`
+      : '/analytics/me/dashboard';
+
+    api.get<DashboardData>(endpoint)
       .then(data => {
         if (!cancelled) {
           setDashboard(data);
@@ -85,10 +89,9 @@ export function useMastery(): UseMasteryResult {
       });
 
     return () => { cancelled = true; };
-  }, [fetchTrigger]);
+  }, [fetchTrigger, targetClassId]);
 
   const refetch = useCallback(() => {
-    // Submission sonrasi mastery'yi guncellemek icin trigger'i artir
     setFetchTrigger(prev => prev + 1);
   }, []);
 

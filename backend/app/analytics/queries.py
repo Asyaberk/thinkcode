@@ -51,18 +51,18 @@ from datetime import datetime, timezone, timedelta
 # 1. MASTERY SUMMARY  (replaces the buggy Python loop in submissions.py)
 # Single query: all topic masteries for a student
 # ─────────────────────────────────────────────────────────────────────────────
-def get_student_mastery_summary(db: Session, student_id: str) -> list[dict]:
+def get_student_mastery_summary(db: Session, student_id: str, class_id: str | None = None) -> list[dict]:
     """
     Returns per-topic mastery aggregated directly in SQL.
-
-    KRITIK FIX: LATEST attempt per problem kullanir.
-    Eski: COUNT(DISTINCT CASE WHEN is_correct THEN problem_id) = once dogru olan problem
-    hep passed sayilir, yanlis yaparsan azalmaz.
-    Yeni: Her problem icin cena son submission gecerli — yanlis yaptiysan 0 puan.
+    If class_id is given, only returns topics belonging to that class.
     """
-    sql = text("""
+    class_filter = "AND t.class_id = :class_id" if class_id else ""
+    params: dict = {"student_id": student_id}
+    if class_id:
+        params["class_id"] = class_id
+
+    sql = text(f"""
         WITH latest_per_problem AS (
-            -- Her problem icin en son submission
             SELECT DISTINCT ON (s.problem_id)
                 s.problem_id,
                 s.student_id,
@@ -97,10 +97,11 @@ def get_student_mastery_summary(db: Session, student_id: str) -> list[dict]:
             WHERE student_id = :student_id
             GROUP BY problem_id
         ) hr ON hr.problem_id = p.id
+        WHERE 1=1 {class_filter}
         GROUP BY t.id, t.name, t.book_chapter, t.display_order
         ORDER BY t.display_order
     """)
-    rows = db.execute(sql, {"student_id": student_id}).mappings().all()
+    rows = db.execute(sql, params).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -346,6 +347,7 @@ def get_class_topic_heatmap(db: Session, class_id: str) -> list[dict]:
         FROM topics t
         LEFT JOIN student_topic_mastery stm
             ON stm.topic_id = t.id AND stm.class_id = :class_id
+        WHERE t.class_id = :class_id
         GROUP BY t.id, t.name, t.display_order
         ORDER BY t.display_order
     """)
