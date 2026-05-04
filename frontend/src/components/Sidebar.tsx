@@ -20,11 +20,11 @@ interface SidebarProps {
   onLogout?: () => void;
   userRole?: UserRole;
   courseName?: string;
-  /** Tamamlanan ders oranı 0-100 */
+  /** Completed lesson percentage 0-100. */
   progressPercent?: number;
-  /** Flow'un kilitlediği section ID'leri — kilitli section'lar gri + lock ikonu gösterir */
+  /** Section IDs locked by the active flow — locked sections show a lock icon. */
   lockedSectionIds?: Set<string>;
-  /** Aktif flow pattern — lock tooltip mesajı için */
+  /** Active flow pattern — used for lock tooltip text. */
   flowPattern?: string;
 }
 
@@ -209,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         key={child.id}
                         onClick={() => !isLocked && onSectionSelect(child.id)}
-                        title={isLocked ? 'Bu bölüm kilitli — önce aktif bölümü tamamla' : undefined}
+                        title={isLocked ? 'This section is locked — complete the current section first' : undefined}
                         className={cn(
                           "w-full flex items-center justify-between py-2 pl-6 pr-3 rounded-xl text-xs font-medium transition-all duration-200 group relative",
                           isLocked
@@ -262,7 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       key={section.id}
                       onClick={() => !isLocked && onSectionSelect(section.id)}
-                      title={isLocked ? 'Bu bölüm kilitli' : undefined}
+                      title={isLocked ? 'This section is locked' : undefined}
                       className={cn(
                         "w-full flex items-center justify-between p-3.5 rounded-xl text-sm font-medium transition-all duration-200 group relative",
                         isLocked

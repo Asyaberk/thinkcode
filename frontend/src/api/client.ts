@@ -1,7 +1,4 @@
 /**
- * API Client — tüm backend istekleri buradan geçer.
- * JWT token'ı localStorage'dan otomatik ekler.
- * 401 alınırsa localStorage temizlenir, sayfa login'e yönlendirilir.
  */
 
 const BASE_URL = '/api/v1';

@@ -377,7 +377,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-emerald-500 rounded-full blur-[120px] opacity-10" />
       </div>
 
-      {/* Dakik Yazılım Teknolojileri — sağ alt köşe */}
+      {/* Partner logo — bottom right corner */}
       <div className="fixed bottom-5 right-5 flex flex-col items-end gap-1.5 select-none z-50">
         <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">Powered by</span>
         <div className="bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2.5 hover:bg-white/15 transition-all duration-300">

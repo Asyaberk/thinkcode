@@ -1,51 +1,25 @@
 """
-analytics/queries.py — Tüm Analytics SQL Sorguları
 
-Bu dosya uygulamanın en kritik katmanıdır: ham SQL (+ SQLAlchemy text()) kullanarak
-veritabanından analitik veriler hesaplanır. ORM nesnesi yerine saf dict/list döner.
-
-FONKSİYONLAR:
   get_student_mastery_summary(db, student_id)
-    → Öğrencinin her konu için mastery (ustalık) skorunu hesaplar.
-      CRITICAL: En son deneme baz alınır (latest attempt per problem).
-      Dashboard, AnalyticsPage ve AI insight için kullanılır.
 
   get_class_percentile_rank(db, student_id, class_id)
-    → Öğrencinin sınıf içindeki sırasını ve yüzdelik dilimini hesaplar.
-      SQL RANK() pencere fonksiyonu kullanır.
-      "Top 25%" gibi görsel göstergeler için kullanılır.
 
   get_weekly_progress(db, student_id, days)
-    → Son N günün günlük aktivitesini döner (her gün kaç soru denenip kaçı doğru).
-      Daily Activity grafiği için.
 
   get_topic_breakdown(db, student_id, class_id)
-    → Konuya göre doğruluk oranını döner. Topic-breakdown endpointi için.
 
   get_streak_days(db, student_id)
-    → Öğrencinin kaç gün üst üste soruya girdiğini hesaplar (streak).
 
   detect_knowledge_gaps(db, class_id, ...)
-    → Sınıf düzeyinde: hangi sorular en çok yanlış yapılıyor?
-      Instructor dashboard "Knowledge Gaps" bölümü için.
-      avg_hints_per_student: problem_id üzerinden doğrudan join yapar.
 
   get_class_student_ranking(db, class_id)
-    → Tüm öğrencileri ortalama mastery skoruna göre sıralar.
-      Instructor dashboard öğrenci tablosu için.
 
-SQL TEKNİKLERİ:
-  - DISTINCT ON (problem_id) → PostgreSQL'e özgü, her sorunun en son cevabını seçer
-  - RANK() OVER (ORDER BY ...)→ Öğrenci sıralaması için pencere fonksiyonu
-  - NULLIF(..., 0)            → Sıfıra bölmeyi önlemek için
   - COALESCE(expr, 0)         → NULL yerine 0 kullan
-  - WITH ... AS (CTE)         → Karmaşık sorguları adımlamak için ortak tablo ifadesi
 """
 from __future__ import annotations
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. MASTERY SUMMARY  (replaces the buggy Python loop in submissions.py)
@@ -104,8 +78,6 @@ def get_student_mastery_summary(db: Session, student_id: str, class_id: str | No
     rows = db.execute(sql, params).mappings().all()
     return [dict(r) for r in rows]
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. CLASS PERCENTILE  (window function — one query for all students)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +122,6 @@ def get_class_percentile_rank(db: Session, student_id: str, class_id: str) -> di
         return {"avg_mastery": 0.0, "percentile": 50.0, "rank": None, "total_students": 0}
     return dict(row)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. WEEKLY PROGRESS  (time series for progress chart)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,7 +145,6 @@ def get_weekly_progress(db: Session, student_id: str, days: int = 30) -> list[di
     """.replace(":days days", f"{days} days"))
     rows = db.execute(sql, {"student_id": student_id}).mappings().all()
     return [dict(r) for r in rows]
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. TOPIC BREAKDOWN  (per topic stats + badges for student UI)
@@ -267,8 +237,6 @@ def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dic
     rows = db.execute(sql, {"student_id": student_id, "class_id": class_id}).mappings().all()
     return [dict(r) for r in rows]
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. CLASS OVERVIEW  (instructor: all students ranked + class stats)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,7 +244,6 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
     """
     All students in a class ranked by average mastery score.
     Includes percentile rank as a window function.
-    weak_topic: her öğrencinin en düşük mastery'e sahip konu adı (subquery).
     """
     sql = text("""
         WITH student_scores AS (
@@ -309,7 +276,6 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
             ROUND(
                 (PERCENT_RANK() OVER (ORDER BY ss.avg_mastery) * 100)::numeric
             , 1)                                              AS percentile,
-            -- weak_topic: öğrencinin en düşük mastery puanına sahip konusunun adı
             (
                 SELECT t.name
                 FROM student_topic_mastery stm2
@@ -325,7 +291,6 @@ def get_class_student_ranking(db: Session, class_id: str) -> list[dict]:
     """)
     rows = db.execute(sql, {"class_id": class_id}).mappings().all()
     return [dict(r) for r in rows]
-
 
 def get_class_topic_heatmap(db: Session, class_id: str) -> list[dict]:
     """
@@ -353,7 +318,6 @@ def get_class_topic_heatmap(db: Session, class_id: str) -> list[dict]:
     """)
     rows = db.execute(sql, {"class_id": class_id}).mappings().all()
     return [dict(r) for r in rows]
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. KNOWLEDGE GAP  (refined: per-problem failure rates)
@@ -413,7 +377,6 @@ def detect_knowledge_gaps(db: Session, class_id: str, min_attempts: int = 3) -> 
     }).mappings().all()
     return [dict(r) for r in rows]
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. HINT USAGE ANALYTICS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -456,7 +419,6 @@ def get_hint_analytics(db: Session, class_id: str) -> dict:
 
     return {"by_level": by_level, "top_struggling_problems": top_problems}
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. MASTERY UPSERT  (replaces the broken Python function in submissions.py)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -465,7 +427,6 @@ def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str
     Submission sonrasi StudentTopicMastery'i tek SQL ile hesaplayip upsert eder.
 
     Mastery formulu (per-problem LATEST ATTEMPT, points-weighted):
-      Her problem icin EN SON submission alınır (submitted_at DESC).
       Son deneme dogru → earned_points artar.
       Son deneme yanlis → earned_points = 0 (onceden dogru olsa bile).
       mastery = earned_points / max_points * 100 - hint_penalti
@@ -546,7 +507,4 @@ def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str
         "class_id": class_id,
         "topic_id": topic_id,
     })
-
-
-
 

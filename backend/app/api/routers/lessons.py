@@ -63,7 +63,7 @@ def update_lesson(
     db: Session = Depends(get_db),
     _: User = Depends(require_instructor),
 ):
-    """Instructor: ders başlığı, özet, içerik veya süresini günceller."""
+    """Instructor: update lesson title, summary, content, or duration."""
     lesson = db.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")

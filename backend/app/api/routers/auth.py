@@ -1,7 +1,6 @@
 """
 Router: /api/v1/auth
 
-Email + şifre doğrular, JWT token döner
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -14,7 +13,6 @@ from app.db.models import User
 from app.schemas import LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
@@ -57,7 +55,6 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         last_name=user.last_name,
     )
 
-
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
@@ -79,7 +76,6 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         first_name=user.first_name,
         last_name=user.last_name,
     )
-
 
 @router.get("/me")
 def me(current_user: User = Depends(get_current_user)):

@@ -1,10 +1,6 @@
 /**
- * api/auth.ts — Kimlik Doğrulama API fonksiyonları
  *
  * KULLANIM:
- *   login(email, password)    → POST /auth/login  — AuthContext.login() çağrır
- *   logout()                  → localStorage temizler (gönderecek HTTP istegi yok)
- *   getMe()                   → GET  /auth/me     — Geçerli kullanıcıyı JWT ile çeker
  *   getStoredUser()           → localStorage'dan AuthUser okur
  *   getStoredToken()          → localStorage'dan access_token okur
  */

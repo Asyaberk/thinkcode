@@ -71,7 +71,7 @@ def classify_intent(state: DialogState) -> DialogState:
     explain_keywords = ["explain", "why", "error", "exception", "traceback",
                        "neden", "acikla", "anlat", "what does", "ne demek"]
     grade_keywords = ["check my answer", "is this right", "correct?", "is this correct",
-                     "correct", "doğru mu", "dogru mu", "verify", "kontrol", "am i right",
+                     "correct", "verify", "am i right", "right?", "is this right", "check this",
                      "am i on the right track", "is my answer"]
 
     if any(k in last_msg for k in hint_keywords):

@@ -1,12 +1,7 @@
 /**
  * mockCourses.ts
  *
- * CourseSelectionPage için görsel zenginlik sağlayan statik veriler.
- * id alanları backend'deki class_id'lerle eşleştirilir (useCourses hook'u inject eder).
- * thumbnail ve color alanları tamamen UI amaçlı — DB'ye yazılmaz.
  *
- * Gerçek class listesi backend'den gelir; bu dosya sadece
- * "class_code → görsel metadata" mapping'i sağlar.
  */
 
 export const COURSE_VISUALS: Record<string, { thumbnail: string; color: string; description: string }> = {
@@ -37,7 +32,7 @@ export const COURSE_VISUALS: Record<string, { thumbnail: string; color: string; 
   },
 };
 
-/** Bir class_code'a göre görsel metadata döndürür, bulunamazsa DEFAULT kullanır */
+/** Returns visual metadata for a given class_code, falling back to DEFAULT if not found. */
 export function getCourseVisuals(code: string) {
   return COURSE_VISUALS[code.toUpperCase()] ?? COURSE_VISUALS['DEFAULT'];
 }

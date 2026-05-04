@@ -1,11 +1,7 @@
 /**
- * hooks/useInstructorClasses.ts — Instructor'ın sınıflarını çeker.
  *
  * GET /api/v1/instructor/me/classes
- * Dönüş: [{ class_id, class_name, class_code, total_students, has_live_flow, active_pattern }]
  *
- * Flow Designer'daki kurs seçici bu hook'tan beslenir.
- * Her sınıf için aktif flow var mı ve hangi pattern olduğunu da döner.
  */
 
 import { useState, useEffect, useCallback } from 'react';

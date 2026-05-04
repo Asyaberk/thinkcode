@@ -1,12 +1,8 @@
 /**
- * DashboardPage.tsx — Öğrenci ana paneli.
  *
- * Backend API'den gerçek veriler çekiliyor:
  *   - GET /api/v1/analytics/me/dashboard  → profil, streak, mastery, weak topics
  *   - GET /api/v1/analytics/me/streak     → streak_days
- *   - GET /api/v1/analytics/me/class-distribution → puan dağılımı
  *
- * UI: ui-template tasarımına uyarlandı (Learning Path list, Streak card, Course Info).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -40,11 +36,11 @@ interface DashboardPageProps {
   onSwitchCourse?: () => void;
   courseName?: string;
   userRole?: UserRole;
-  /** Submission sonrası dashboard'u yenilemek için arttırılır */
+  /** Incremented after each submission to trigger a dashboard refresh. */
   refreshKey?: number;
-  /** Öğrencinin sınıf ID'si */
+  /** The student's active class ID. */
   classId?: string;
-  /** Bugün vadesi gelen Spaced Review kayıtları */
+  /** Spaced review items due today for the student. */
   dueReviews?: import('../api/flows').SpacedReviewItem[];
   /** Spaced Review sorusuna git */
   onReviewStart?: (problemId: string) => void;
@@ -82,7 +78,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         setDashData(dash);
         setStreakData(streak);
       } catch (err) {
-        console.error('Dashboard yüklenemedi:', err);
+        console.error('Failed to load dashboard:', err);
       } finally {
         setIsLoading(false);
       }
@@ -202,7 +198,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <div className="flex-1">
                 <div className="text-sm font-bold text-amber-300 mb-0.5 flex items-center gap-2">
                   <Clock size={13} className="text-amber-400" />
-                  Bugün Tekrar Zamanı! — Spaced Retrieval
+                  Spaced Review Due Today!
                 </div>
                 <div className="text-xs text-slate-400">
                   {dueReviews.length === 1
@@ -214,7 +210,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 onClick={() => onReviewStart?.(dueReviews[0].problem_id)}
                 className="px-5 py-2.5 bg-amber-500 text-slate-950 text-xs font-bold rounded-xl hover:bg-amber-400 transition-all shrink-0 flex items-center gap-2"
               >
-                Tekrara Başla <ChevronRight size={12} />
+                Start Review <ChevronRight size={12} />
               </button>
             </motion.div>
           )}
