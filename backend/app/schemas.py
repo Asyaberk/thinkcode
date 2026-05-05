@@ -1,18 +1,25 @@
 """
+Pydantic schemas for request validation and Swagger response documentation.
 
-models.py
-
-schemas.py
-
-SCHEMA GRUPLARI:
-
+Groups:
+  - Auth
+  - User
+  - Topic / Lesson / Problem / Hint
+  - Submission
+  - AI Tutor
+  - Instructor CRUD
+  - Analytics (student)
+  - Instructor Analytics
+  - Flows (pedagogical)
+  - Classes & Enrollment
+  - Resources
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from typing import Optional
+from typing import Optional, List, Any
 
 from datetime import datetime
 
@@ -452,3 +459,286 @@ class ProblemInstructorOut(BaseModel):
 
         from_attributes = True
 
+
+# ── Generic ────────────────────────────────────────────────────────────────────
+
+class GenericMessageOut(BaseModel):
+    """Generic success/detail message response."""
+    detail: str
+
+class EnrollStatusOut(BaseModel):
+    """Returned after enroll / unenroll actions."""
+    detail: str
+    status: Optional[str] = None
+
+# ── Classes ────────────────────────────────────────────────────────────────────
+
+class ClassOut(BaseModel):
+    """A course class with enrollment metadata."""
+    class_id: str
+    class_name: str
+    class_code: str
+    semester: Optional[str] = None
+    instructor_name: str
+    total_students: int
+    is_enrolled: bool
+    enrollment_status: Optional[str] = None
+    description: Optional[str] = None
+    color: str
+    thumbnail_url: Optional[str] = None
+    tags: Optional[str] = None
+
+class EnrollmentOut(BaseModel):
+    """An enrollment record for a student in a class."""
+    enrollment_id: str
+    student_id: str
+    first_name: str
+    last_name: str
+    email: str
+    status: str
+    requested_at: Optional[datetime] = None
+    enrolled_at: Optional[datetime] = None
+
+class EnrollmentActionOut(BaseModel):
+    """Returned after approve / reject enrollment."""
+    detail: str
+    enrollment_id: str
+
+# ── Flows ──────────────────────────────────────────────────────────────────────
+
+class FlowOut(BaseModel):
+    """A pedagogical flow definition."""
+    id: str
+    class_id: str
+    instructor_id: str
+    pattern: str
+    flow_json: dict
+    config: dict
+    status: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class ActiveFlowOut(BaseModel):
+    """Active (live) flow for a class, or default fallback if none deployed."""
+    has_active_flow: bool
+    id: Optional[str] = None
+    class_id: Optional[str] = None
+    instructor_id: Optional[str] = None
+    pattern: Optional[str] = None
+    flow_json: Optional[dict] = None
+    config: Optional[dict] = None
+    status: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class FlowSummaryOut(BaseModel):
+    """AI-generated natural-language summary for a pedagogical flow."""
+    summary: str
+    flow_id: str
+    pattern: str
+
+class SpacedReviewOut(BaseModel):
+    """A spaced-retrieval review item due today or earlier."""
+    id: str
+    topic_id: str
+    topic_name: Optional[str] = None
+    problem_id: str
+    review_day: int
+    scheduled_at: datetime
+
+class SpacedReviewCompleteOut(BaseModel):
+    ok: bool
+    review_id: str
+
+class AdaptiveStateOut(BaseModel):
+    """Student adaptive branch state and diagnostic problems for a topic."""
+    diagnostic_done: bool
+    assigned_path: Optional[str] = None
+    diagnostic_score: Optional[float] = None
+    diagnostic_problems: List[Any] = []
+
+class AdaptiveCompleteOut(BaseModel):
+    """Result after completing an adaptive diagnostic."""
+    assigned_path: str
+    diagnostic_score: float
+    threshold: int
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+
+class UploadResponseOut(BaseModel):
+    """Returned after uploading a resource file."""
+    resource_id: str
+    filename: str
+    status: str
+    message: str
+
+class ResourceListItemOut(BaseModel):
+    """A resource summary item in the instructor resource list."""
+    resource_id: str
+    filename: str
+    file_type: str
+    week_name: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    source_url: Optional[str] = None
+    has_file: bool
+    download_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+class ResourceResultOut(BaseModel):
+    """Processing status and counts for an uploaded resource."""
+    resource_id: str
+    filename: str
+    status: str
+    error_message: Optional[str] = None
+    topics_created: int
+    lessons_created: int
+    problems_created: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class ResourceContentOut(BaseModel):
+    """AI-extracted structured content from a resource."""
+    course_title: Optional[str] = ""
+    topics: List[Any] = []
+    misconceptions: List[Any] = []
+
+class LinkResourceOut(BaseModel):
+    """Returned after adding a resource link (YouTube, Drive, URL)."""
+    resource_id: str
+    title: str
+    source_url: str
+    link_type: str
+    status: str
+    message: str
+
+# ── Analytics — Student ────────────────────────────────────────────────────────
+
+class HintStatsOut(BaseModel):
+    no_hint: int
+    one_hint: int
+    multi_hint: int
+    total_problems: int
+
+class ClassStatsOut(BaseModel):
+    class_avg_score: Optional[float] = None
+    top_performer_score: Optional[float] = None
+    avg_hint_usage: Optional[float] = None
+
+class ClassDifficultyItemOut(BaseModel):
+    question: str
+    topic: str
+    failRate: int
+
+class StudentDashboardOut(BaseModel):
+    """Full student analytics dashboard."""
+    user: Any
+    class_id: Optional[str] = None
+    class_code: Optional[str] = None
+    class_name: Optional[str] = None
+    total_problems_attempted: int
+    total_problems_passed: int
+    overall_mastery_score: float
+    percentile: float
+    rank: Optional[Any] = None
+    total_students_in_class: int
+    hint_stats: HintStatsOut
+    avg_time_minutes: float
+    streak_days: int
+    class_stats: ClassStatsOut
+    class_difficulty: List[ClassDifficultyItemOut]
+    weak_topics: List[Any]
+    strong_topics: List[Any]
+    all_topics: List[Any]
+
+class AiInsightOut(BaseModel):
+    """AI-generated personalized learning insight for the student."""
+    insight: str
+    percentile: float
+    rank: Optional[Any] = None
+    total_students: int
+
+class ClassDistributionItemOut(BaseModel):
+    bucket: int
+    label: str
+    count: int
+
+class StreakOut(BaseModel):
+    streak_days: int
+    last_active: Optional[str] = None
+
+class SubmissionHistoryItemOut(BaseModel):
+    id: str
+    problem_id: str
+    status: str
+    score: Optional[float] = None
+    max_score: Optional[float] = None
+    is_correct: Optional[bool] = None
+    attempt_number: int
+    time_spent_seconds: Optional[int] = None
+    submitted_at: Optional[str] = None
+
+class SolvedProblemIdsOut(BaseModel):
+    solved_problem_ids: List[str]
+
+# ── Analytics — Instructor ────────────────────────────────────────────────────
+
+class GapAnalysisOut(BaseModel):
+    """Result of the AI knowledge-gap analysis run for a class."""
+    gaps_detected: int
+    new_gaps_persisted: int
+    ai_analysis: Optional[str] = None
+    top_gap: Optional[Any] = None
+
+class InstructorClassSummaryOut(BaseModel):
+    """Class summary item in the instructor's class list."""
+    class_id: str
+    class_name: str
+    class_code: str
+    semester: Optional[str] = None
+    total_students: int
+    has_live_flow: bool
+    active_pattern: Optional[str] = None
+
+class ClassDashboardOut(BaseModel):
+    """Full instructor analytics dashboard for a class."""
+    class_id: str
+    class_name: str
+    class_code: str
+    total_students: int
+    average_mastery: float
+    median_mastery: float
+    students_with_activity: int
+    knowledge_gaps: List[Any]
+    topic_heatmap: List[Any]
+    top_students: List[Any]
+    bottom_students: List[Any]
+
+class InstructorPrimaryClassOut(BaseModel):
+    """Summary of the instructor's primary active class."""
+    class_id: str
+    class_name: str
+    class_code: str
+    semester: Optional[str] = None
+    total_students: int
+
+# ── Topic Resources ────────────────────────────────────────────────────────────
+
+class TopicResourceItemOut(BaseModel):
+    """A resource linked to a topic (for student view)."""
+    resource_id: str
+    title: str
+    source_url: Optional[str] = None
+    file_type: Optional[str] = None
+    week_name: Optional[str] = None
+    has_file: bool
+    download_url: Optional[str] = None
+
+# ── Hint Request ───────────────────────────────────────────────────────────────
+
+class HintResponseOut(BaseModel):
+    """Hint delivered by the AI hint agent for a submission."""
+    level: int
+    content: str
+    max_level: int
+    trace_id: Optional[str] = None

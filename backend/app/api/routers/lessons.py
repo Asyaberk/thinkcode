@@ -86,7 +86,7 @@ def delete_lesson(
     db: Session = Depends(get_db),
     _: User = Depends(require_instructor),
 ):
-    """Instructor: dersi siler."""
+    """Instructor: delete a lesson."""
     lesson = db.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")

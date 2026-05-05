@@ -10,7 +10,7 @@ import uuid
 from app.api.deps import get_db, get_current_user
 from app.core.security import create_access_token
 from app.db.models import User
-from app.schemas import LoginRequest, RegisterRequest, TokenResponse
+from app.schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -77,8 +77,9 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         last_name=user.last_name,
     )
 
-@router.get("/me")
+@router.get("/me", response_model=UserOut, summary="Get current authenticated user")
 def me(current_user: User = Depends(get_current_user)):
+    """Return the profile of the currently authenticated user (id, email, name, role)."""
     return {
         "id": current_user.id,
         "email": current_user.email,

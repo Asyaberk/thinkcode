@@ -12,7 +12,7 @@ from app.api.deps import get_db, get_current_user, require_instructor
 
 from app.db.models import Topic, Lesson
 
-from app.schemas import TopicOut, LessonOut, TopicUpdate, TopicCreate, LessonCreate
+from app.schemas import TopicOut, LessonOut, TopicUpdate, TopicCreate, LessonCreate, TopicResourceItemOut
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
@@ -290,8 +290,7 @@ def delete_topic(
 
     db.commit()
 
-@router.get("/{topic_id}/resources")
-
+@router.get("/{topic_id}/resources", response_model=list[TopicResourceItemOut], summary="Get the resource linked to a topic (student-facing)")
 def get_topic_resources(
 
     topic_id: str,

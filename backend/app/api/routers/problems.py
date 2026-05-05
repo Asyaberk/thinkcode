@@ -106,8 +106,7 @@ def create_problem(
 
     return problem
 
-@router.get("", response_model=list[ProblemListOut])
-
+@router.get("", response_model=list[ProblemListOut], summary="List published problems (filterable by topic, difficulty, type)")
 def list_problems(
 
     topic_id: Optional[str] = Query(None),
@@ -121,6 +120,7 @@ def list_problems(
     _: User = Depends(get_current_user),
 
 ):
+    """Return all published problems. Supports filtering by `topic_id`, `difficulty` (easy/medium/hard), and `type` (multiple_choice/coding/open_response)."""
 
     q = db.query(Problem).filter(Problem.is_published == True)
 
@@ -168,8 +168,7 @@ def list_problems_instructor(
 
     return db.query(Problem).filter(Problem.topic_id == topic_id).all()
 
-@router.get("/{problem_id}", response_model=ProblemOut)
-
+@router.get("/{problem_id}", response_model=ProblemOut, summary="Get a single published problem by ID")
 def get_problem(
 
     problem_id: str,
@@ -179,6 +178,7 @@ def get_problem(
     _: User = Depends(get_current_user),
 
 ):
+    """Return a published problem including its options (without correct-answer flags for students)."""
 
     problem = db.get(Problem, problem_id)
 
@@ -188,8 +188,7 @@ def get_problem(
 
     return problem
 
-@router.get("/{problem_id}/hint/{level}", response_model=HintOut)
-
+@router.get("/{problem_id}/hint/{level}", response_model=HintOut, summary="Get a static hint for a problem at a given level (1–3)")
 def get_hint(
 
     problem_id: str,
@@ -201,6 +200,7 @@ def get_hint(
     _: User = Depends(get_current_user),
 
 ):
+    """Return the pre-authored hint for a problem at the specified level. Use `POST /submissions/{id}/hint` for AI-generated adaptive hints."""
 
     hint = (
 

@@ -32,6 +32,14 @@ from app.ai.content_extractor import extract_content_from_markdown
 
 from app.ai.link_extractor import extract_text_from_link, detect_url_type
 
+from app.schemas import (
+    UploadResponseOut,
+    ResourceListItemOut,
+    ResourceResultOut,
+    ResourceContentOut,
+    LinkResourceOut,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resources", tags=["resources"])
@@ -64,15 +72,14 @@ ALLOWED_EXTENSIONS = {
 
 MAX_FILE_SIZE_MB = 10
 
-@router.post("/upload")
-
+@router.post("/upload", response_model=UploadResponseOut, summary="Upload a course resource file (PDF, image, code, text)")
 async def upload_resource(
 
     file: UploadFile = File(...),
 
     week_name: Optional[str] = Form(None),
 
-    class_id: Optional[str] = Form(None),   # <-- hangi derse ait
+    class_id: Optional[str] = Form(None),
 
     db: Session = Depends(get_db),
 
@@ -81,18 +88,13 @@ async def upload_resource(
 ):
 
     """
-
-    - Dosya UPLOAD_DIR'e kaydedilir
-
+    Upload a file and store it. Call `POST /{resource_id}/process` afterwards to trigger AI extraction.
+    Allowed types: PDF, PNG/JPG, C/C++/Python/JS/TS/Java, TXT, MD. Max size: 10 MB.
     """
-
-    # Sadece instructor yukleyebilir
 
     if current_user.role not in ("instructor", "admin"):
 
-        raise HTTPException(status_code=403, detail="Sadece instructor kaynak yukleyebilir.")
-
-    # Dosya uzantisi kontrolu
+        raise HTTPException(status_code=403, detail="Only instructors can upload resources.")
 
     suffix = Path(file.filename or "").suffix.lower()
 
@@ -102,11 +104,9 @@ async def upload_resource(
 
             status_code=400,
 
-            detail=f"Desteklenmeyen dosya turu: {suffix}. Izin verilenler: {ALLOWED_EXTENSIONS}",
+            detail=f"Unsupported file type: {suffix}. Allowed: {ALLOWED_EXTENSIONS}",
 
         )
-
-    # Dosya boyutu kontrolu (bellegde okuyarak)
 
     file_bytes = await file.read()
 
@@ -116,7 +116,7 @@ async def upload_resource(
 
             status_code=413,
 
-            detail=f"Dosya cok buyuk. Maksimum {MAX_FILE_SIZE_MB} MB.",
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB} MB.",
 
         )
 
@@ -192,12 +192,11 @@ async def upload_resource(
 
         "status": resource.status,
 
-        "message": "Dosya basariyla yuklendi. Isleme baslatmak icin /process endpoint'ini kullanin.",
+        "message": "File uploaded successfully. Use /process to trigger AI content extraction.",
 
     }
 
-@router.post("/{resource_id}/process")
-
+@router.post("/{resource_id}/process", summary="Trigger AI extraction for an uploaded resource")
 def process_resource(
 
     resource_id: str,
@@ -213,28 +212,18 @@ def process_resource(
 ):
 
     """
+    Trigger AI processing of an uploaded resource in the background:
+    1. Text is extracted from the file (PDF, code, etc.)
+    2. GPT extracts Topics / Lessons / Problems from the content
+    3. Results are persisted to the database
 
-    Yuklenen kaynagi AI ile isler:
-
-      1. pdfplumber/Chandra ile metin cikarilir (raw_markdown)
-
-      2. GPT-4o-mini ile Topics/Lessons/Questions uretilir
-
-      3. Sonuclar DB'ye kaydedilir
-
-    Bu islem zaman alabilir (buyuk PDF icin 30-60 sn).
-
-    Islem arka planda baslatilir; sonucu /result ile sorgulanabilir.
-
-    Dondurur: { message, status }
-
+    Processing can take 30–60 seconds for large PDFs.
+    Poll `GET /{resource_id}/result` for status.
     """
 
     if current_user.role not in ("instructor", "admin"):
 
-        raise HTTPException(status_code=403, detail="Sadece instructor kaynak isleyebilir.")
-
-    # Kaynagi bul ve sahipligini dogrula
+        raise HTTPException(status_code=403, detail="Only instructors can process resources.")
 
     resource = db.query(CourseResource).filter(
 
@@ -246,15 +235,15 @@ def process_resource(
 
     if not resource:
 
-        raise HTTPException(status_code=404, detail="Kaynak bulunamadi.")
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     if resource.status == "processing":
 
-        raise HTTPException(status_code=409, detail="Bu kaynak zaten isleniyor.")
+        raise HTTPException(status_code=409, detail="This resource is already being processed.")
 
     if resource.status == "done":
 
-        raise HTTPException(status_code=409, detail="Bu kaynak zaten islendi. Tekrar islemek icin yeni yukleyin.")
+        raise HTTPException(status_code=409, detail="This resource has already been processed. Upload a new file to reprocess.")
 
     # Status'u 'processing' yap
 
@@ -290,12 +279,11 @@ def process_resource(
 
         "status": "processing",
 
-        "message": "Islem baslatildi. Sonucu /resources/{id}/result ile sorgulayabilirsiniz.",
+        "message": "Processing started. Poll /resources/{id}/result for status.",
 
     }
 
-@router.get("/{resource_id}/result")
-
+@router.get("/{resource_id}/result", response_model=ResourceResultOut, summary="Poll processing status of an uploaded resource")
 def get_resource_result(
 
     resource_id: str,
@@ -307,17 +295,8 @@ def get_resource_result(
 ):
 
     """
-
-    Kaynak islem sonucunu dondurur.
-
-    status='processing' ise hala calisiyordur.
-
-    status='done'       ise topics/lessons/problems sayilari gelir.
-
-    status='failed'     ise hata mesaji gelir.
-
-    Dondurur: { status, topics_created, lessons_created, problems_created, error_message }
-
+    Returns the current processing status and extracted content counts for a resource.
+    Poll until `status` is `'done'` or `'failed'`.
     """
 
     resource = db.query(CourseResource).filter(
@@ -330,7 +309,7 @@ def get_resource_result(
 
     if not resource:
 
-        raise HTTPException(status_code=404, detail="Kaynak bulunamadi.")
+        raise HTTPException(status_code=404, detail="Resource not found.")
 
     # En son extraction kaydini getir
 
@@ -368,22 +347,15 @@ def get_resource_result(
 
     }
 
-@router.get("/")
-
+@router.get("/", response_model=list[ResourceListItemOut], summary="List all resources for the instructor")
 def list_resources(
 
-    class_id: Optional[str] = None,    # if provided, filter resources to this class only
-
+    class_id: Optional[str] = None,
     db: Session = Depends(get_db),
-
     current_user: User = Depends(get_current_user),
-
 ):
-
-    """Return all resources for the instructor. If class_id is provided, returns only resources for that class."""
-
+    """Return all resources uploaded by the instructor. Optionally filter by class_id."""
     if current_user.role not in ("instructor", "admin"):
-
         raise HTTPException(status_code=403, detail="Instructor access required.")
 
     q = (
@@ -436,8 +408,7 @@ def list_resources(
 
     ]
 
-@router.delete("/{resource_id}", status_code=204)
-
+@router.delete("/{resource_id}", status_code=204, summary="Permanently delete a resource and its MinIO object")
 def delete_resource(
 
     resource_id: str,
@@ -512,8 +483,7 @@ def delete_resource(
 
     # 204 No Content
 
-@router.post("/link", status_code=201)
-
+@router.post("/link", status_code=201, response_model=LinkResourceOut, summary="Add a YouTube, Google Drive, or web URL as a resource")
 def add_resource_link(
 
     background_tasks: BackgroundTasks,
@@ -535,16 +505,16 @@ def add_resource_link(
 ):
 
     """
-
-      - YouTube  → Whisper transkript → GPT extraction (async)
-
-      - Drive/PDF URL → indir → GPT extraction (async)
-
+    Add a URL resource. Supported types:
+    - YouTube  → transcribed via Whisper, then AI extraction
+    - Google Drive / direct PDF URL → downloaded, then AI extraction
+    - Generic web URL → scraped and AI extracted
+    Processing runs in the background. Poll `GET /{resource_id}/result` for status.
     """
 
     if current_user.role not in ("instructor", "admin"):
 
-        raise HTTPException(status_code=403, detail="Sadece instructor link ekleyebilir.")
+        raise HTTPException(status_code=403, detail="Only instructors can add resource links.")
 
     if not source_url or not source_url.strip():
 
@@ -719,8 +689,7 @@ def _process_link_task(
 
         db.close()
 
-@router.get("/{resource_id}/content")
-
+@router.get("/{resource_id}/content", response_model=ResourceContentOut, summary="Get AI-extracted structured content from a resource")
 def get_resource_content(
 
     resource_id: str,
@@ -767,8 +736,7 @@ def get_resource_content(
 
     return extraction.extracted_json
 
-@router.get("/{resource_id}/download")
-
+@router.get("/{resource_id}/download", summary="Download a resource file or redirect to its external URL")
 def download_resource(
 
     resource_id: str,
@@ -871,7 +839,7 @@ def download_resource(
 
             )
 
-        raise HTTPException(status_code=404, detail="Dosya ne MinIO'da ne de diskte bulundu.")
+        raise HTTPException(status_code=404, detail="File not found in MinIO or on disk.")
 
     raise HTTPException(status_code=404, detail="No file or link associated with this resource.")
 

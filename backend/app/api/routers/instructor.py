@@ -34,12 +34,22 @@ from app.analytics.queries import (
 
 )
 
+from app.schemas import (
+    InstructorPrimaryClassOut,
+    InstructorClassSummaryOut,
+    ClassDashboardOut,
+    GapAnalysisOut,
+)
+
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
 
 
-@router.get("/me/class")
-
+@router.get(
+    "/me/class",
+    response_model=InstructorPrimaryClassOut,
+    summary="Instructor's primary active class summary",
+)
 def my_class(
 
     db: Session = Depends(get_db),
@@ -90,8 +100,11 @@ def my_class(
 
     }
 
-@router.get("/me/classes")
-
+@router.get(
+    "/me/classes",
+    response_model=list[InstructorClassSummaryOut],
+    summary="All active classes owned by the instructor",
+)
 def my_classes(
 
     db: Session = Depends(get_db),
@@ -162,8 +175,11 @@ def my_classes(
 
     return result
 
-@router.get("/{class_id}/dashboard")
-
+@router.get(
+    "/{class_id}/dashboard",
+    response_model=ClassDashboardOut,
+    summary="Full analytics dashboard for a class",
+)
 def class_dashboard(
 
     class_id: str,
@@ -250,8 +266,10 @@ def class_dashboard(
 
     }
 
-@router.get("/{class_id}/students")
-
+@router.get(
+    "/{class_id}/students",
+    summary="Ranked student list for a class",
+)
 def class_students(
 
     class_id: str,
@@ -270,8 +288,10 @@ def class_students(
 
     return get_class_student_ranking(db, class_id)
 
-@router.get("/{class_id}/topic-heatmap")
-
+@router.get(
+    "/{class_id}/topic-heatmap",
+    summary="Per-topic mastery heatmap for a class",
+)
 def topic_heatmap(
 
     class_id: str,
@@ -298,8 +318,10 @@ def topic_heatmap(
 
     return get_class_topic_heatmap(db, class_id)
 
-@router.get("/{class_id}/knowledge-gaps")
-
+@router.get(
+    "/{class_id}/knowledge-gaps",
+    summary="Problems with high failure rates (knowledge gaps)",
+)
 def knowledge_gaps(
 
     class_id: str,
@@ -328,8 +350,11 @@ def knowledge_gaps(
 
     return detect_knowledge_gaps(db, class_id, min_attempts=min_attempts)
 
-@router.post("/{class_id}/analyze-gaps")
-
+@router.post(
+    "/{class_id}/analyze-gaps",
+    response_model=GapAnalysisOut,
+    summary="Run AI knowledge-gap analysis and persist results",
+)
 def analyze_and_persist_gaps(
 
     class_id: str,
@@ -462,8 +487,10 @@ def analyze_and_persist_gaps(
 
     }
 
-@router.get("/{class_id}/hints")
-
+@router.get(
+    "/{class_id}/hints",
+    summary="Hint usage analytics for a class",
+)
 def hint_analytics(
 
     class_id: str,

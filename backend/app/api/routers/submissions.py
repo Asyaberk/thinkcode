@@ -23,13 +23,13 @@ from app.db.models import (
 
 )
 
-from app.schemas import SubmissionCreate, SubmissionOut
+from app.schemas import SubmissionCreate, SubmissionOut, SolvedProblemIdsOut, HintResponseOut
 
 from app.analytics.queries import recompute_mastery
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 
-@router.post("", response_model=SubmissionOut)
+@router.post("", response_model=SubmissionOut, summary="Submit an answer to a problem (MCQ, open-response, or coding)")
 
 def submit(
 
@@ -320,8 +320,11 @@ def _maybe_schedule_spaced_reviews(
 
             db.rollback()  # ignore duplicate-key violations
 
-@router.get("/me/solved-problem-ids")
-
+@router.get(
+    "/me/solved-problem-ids",
+    response_model=SolvedProblemIdsOut,
+    summary="Get all problem IDs solved correctly by the current student",
+)
 def get_solved_problem_ids(
 
     db: Session = Depends(get_db),
@@ -352,8 +355,11 @@ def get_solved_problem_ids(
 
     return {"solved_problem_ids": [str(r[0]) for r in rows]}
 
-@router.get("/{submission_id}", response_model=SubmissionOut)
-
+@router.get(
+    "/{submission_id}",
+    response_model=SubmissionOut,
+    summary="Get a specific submission (must belong to the current student)",
+)
 def get_submission(
 
     submission_id: str,
@@ -372,8 +378,11 @@ def get_submission(
 
     return sub
 
-@router.post("/{submission_id}/hint")
-
+@router.post(
+    "/{submission_id}/hint",
+    response_model=HintResponseOut,
+    summary="Request an AI-generated hint for a failed submission",
+)
 def request_hint(
 
     submission_id: str,

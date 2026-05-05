@@ -28,6 +28,15 @@ from app.analytics.queries import (
 
 )
 
+from app.schemas import (
+    StudentDashboardOut,
+    AiInsightOut,
+    ClassDistributionItemOut,
+    StreakOut,
+    SubmissionHistoryItemOut,
+    SolvedProblemIdsOut,
+)
+
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 def _get_class_id(db: Session, student_id: str) -> Optional[str]:
@@ -52,8 +61,11 @@ def _get_class_id(db: Session, student_id: str) -> Optional[str]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/dashboard")
-
+@router.get(
+    "/me/dashboard",
+    response_model=StudentDashboardOut,
+    summary="Student analytics dashboard",
+)
 def my_dashboard(
 
     db: Session = Depends(get_db),
@@ -458,8 +470,7 @@ def my_dashboard(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/mastery")
-
+@router.get("/me/mastery", summary="Student topic mastery summary")
 def my_mastery(
 
     db: Session = Depends(get_db),
@@ -467,7 +478,7 @@ def my_mastery(
     current_user: User = Depends(get_current_user),
 
 ):
-
+    """Return mastery score, problems attempted/passed, and hint count per topic for the current student."""
     return get_student_mastery_summary(db, current_user.id)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,8 +487,7 @@ def my_mastery(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/topic-breakdown")
-
+@router.get("/me/topic-breakdown", summary="Per-topic breakdown with badge level")
 def my_topic_breakdown(
 
     db: Session = Depends(get_db),
@@ -500,8 +510,7 @@ def my_topic_breakdown(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/progress")
-
+@router.get("/me/progress", summary="Weekly submission progress (time series)")
 def my_progress(
 
     days: int = Query(30, ge=7, le=90),
@@ -518,8 +527,11 @@ def my_progress(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/ai-insight")
-
+@router.get(
+    "/me/ai-insight",
+    response_model=AiInsightOut,
+    summary="AI-generated personalized learning insight",
+)
 def my_ai_insight(
 
     db: Session = Depends(get_db),
@@ -662,8 +674,7 @@ def my_ai_insight(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/students/{student_id}/mastery")
-
+@router.get("/students/{student_id}/mastery", summary="Any student's mastery summary (instructor view)")
 def student_mastery(
 
     student_id: str,
@@ -686,8 +697,11 @@ def student_mastery(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/submissions")
-
+@router.get(
+    "/me/submissions",
+    response_model=list[SubmissionHistoryItemOut],
+    summary="Recent submission history for the current student",
+)
 def my_submissions(
 
     limit: int = Query(50, le=200),
@@ -744,8 +758,11 @@ def my_submissions(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/class-distribution")
-
+@router.get(
+    "/me/class-distribution",
+    response_model=list[ClassDistributionItemOut],
+    summary="Score distribution histogram across all class students",
+)
 def class_distribution(
 
     db: Session = Depends(get_db),
@@ -820,8 +837,11 @@ def class_distribution(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/me/streak")
-
+@router.get(
+    "/me/streak",
+    response_model=StreakOut,
+    summary="Current daily submission streak for the student",
+)
 def my_streak(
 
     db: Session = Depends(get_db),

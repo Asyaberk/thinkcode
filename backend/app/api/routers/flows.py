@@ -32,6 +32,16 @@ from app.db.models import (
 
 )
 
+from app.schemas import (
+    FlowOut,
+    ActiveFlowOut,
+    FlowSummaryOut,
+    SpacedReviewOut,
+    SpacedReviewCompleteOut,
+    AdaptiveStateOut,
+    AdaptiveCompleteOut,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/flows", tags=["flows"])
@@ -122,8 +132,7 @@ def _flow_response(flow: CourseFlow) -> dict:
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 
-@router.post("/", status_code=201)
-
+@router.post("/", status_code=201, response_model=FlowOut, summary="Create a new pedagogical flow (draft)")
 def create_flow(
 
     body: FlowCreate,
@@ -180,8 +189,7 @@ def create_flow(
 
     return _flow_response(flow)
 
-@router.put("/{flow_id}")
-
+@router.put("/{flow_id}", response_model=FlowOut, summary="Update a flow's pattern, JSON, or config")
 def update_flow(
 
     flow_id: str,
@@ -220,8 +228,7 @@ def update_flow(
 
     return _flow_response(flow)
 
-@router.post("/{flow_id}/deploy")
-
+@router.post("/{flow_id}/deploy", response_model=FlowOut, summary="Deploy a flow (set to live, demotes others to draft)")
 def deploy_flow(
 
     flow_id: str,
@@ -232,7 +239,7 @@ def deploy_flow(
 
 ):
 
-    """Permanently delete a pedagogical flow. Instructor must own the flow."""
+    """Set this flow to 'live' status for its class. Any previously live flow in the same class is demoted to 'draft'."""
 
     _check_instructor(current_user)
 
@@ -266,8 +273,7 @@ def deploy_flow(
 
     }
 
-@router.get("/active")
-
+@router.get("/active", response_model=ActiveFlowOut, summary="Get the live (active) flow for a class")
 def get_active_flow(
 
     class_id: str = Query(..., description="Class UUID"),
@@ -310,8 +316,7 @@ def get_active_flow(
 
     }
 
-@router.get("/")
-
+@router.get("/", response_model=list[FlowOut], summary="List all flows for the current instructor")
 def list_flows(
 
     class_id: Optional[str] = Query(None, description="Filter by class UUID"),
@@ -336,8 +341,7 @@ def list_flows(
 
     return [_flow_response(f) for f in flows]
 
-@router.delete("/{flow_id}", status_code=204)
-
+@router.delete("/{flow_id}", status_code=204, summary="Delete a draft flow (live flows cannot be deleted)")
 def delete_flow(
 
     flow_id: str,
@@ -370,8 +374,7 @@ def delete_flow(
 
     return
 
-@router.post("/{flow_id}/summary")
-
+@router.post("/{flow_id}/summary", response_model=FlowSummaryOut, summary="Generate an AI natural-language summary for a flow")
 def generate_flow_summary(
 
     flow_id: str,
@@ -452,8 +455,7 @@ Write 2-3 sentences: how students experience this flow, what happens on wrong vs
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/spaced-reviews")
-
+@router.get("/spaced-reviews", response_model=list[SpacedReviewOut], summary="Get spaced-retrieval reviews due today")
 def get_due_spaced_reviews(
 
     class_id: str = Query(..., description="Class UUID"),
@@ -510,8 +512,7 @@ def get_due_spaced_reviews(
 
     ]
 
-@router.post("/spaced-reviews/{review_id}/complete")
-
+@router.post("/spaced-reviews/{review_id}/complete", response_model=SpacedReviewCompleteOut, summary="Mark a spaced review as completed")
 def complete_spaced_review(
 
     review_id: str,
@@ -556,8 +557,7 @@ def complete_spaced_review(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/adaptive-state")
-
+@router.get("/adaptive-state", response_model=AdaptiveStateOut, summary="Get student adaptive branch state for a topic")
 def get_adaptive_state(
 
     class_id: str  = Query(..., description="Class UUID"),
@@ -658,8 +658,7 @@ class AdaptiveCompleteBody(BaseModel):
 
     total_count:   int
 
-@router.post("/adaptive-complete")
-
+@router.post("/adaptive-complete", response_model=AdaptiveCompleteOut, summary="Submit adaptive diagnostic results and assign learning path")
 def complete_adaptive_diagnostic(
 
     body: AdaptiveCompleteBody,

@@ -12,10 +12,63 @@ from app.api.routers import (
     instructor, tutor, lessons, resources, flows, classes,
 )
 
+_TAGS_METADATA = [
+    {
+        "name": "auth",
+        "description": "User registration and authentication. Returns a JWT bearer token.",
+    },
+    {
+        "name": "classes",
+        "description": "Class (course) management: create, update, delete classes and manage student enrollment requests.",
+    },
+    {
+        "name": "topics",
+        "description": "Topic CRUD within a class. Topics are the top-level content units that contain lessons and problems.",
+    },
+    {
+        "name": "lessons",
+        "description": "Lesson content management. Instructors can generate AI lesson summaries from URLs or raw text.",
+    },
+    {
+        "name": "problems",
+        "description": "Problem (question) CRUD. Supports multiple-choice, open-response, and coding problem types.",
+    },
+    {
+        "name": "submissions",
+        "description": "Student answer submissions. Auto-grades MCQ; uses LangGraph AI for open-response. Also handles AI hint delivery.",
+    },
+    {
+        "name": "analytics",
+        "description": "Student-facing analytics: mastery scores, weekly progress, topic breakdown, streak, AI insight, and class distribution.",
+    },
+    {
+        "name": "instructor",
+        "description": "Instructor-facing analytics: class dashboard, student rankings, topic heatmap, knowledge gaps, and hint analytics.",
+    },
+    {
+        "name": "tutor",
+        "description": "AI Tutor chat endpoints. The dialog graph classifies intent (hint / error-explain / general) and routes accordingly.",
+    },
+    {
+        "name": "resources",
+        "description": "Course resource management: upload PDFs, add YouTube/Drive links, trigger AI content extraction, and download files.",
+    },
+    {
+        "name": "flows",
+        "description": "Pedagogical flow designer: create, update, deploy, and query adaptive learning flows (Socratic retry, mastery gate, spaced retrieval, adaptive branch).",
+    },
+]
+
 app = FastAPI(
     title="ThinkCode Learning Analytics API",
-    description="Backend for the ThinkCode Algorithms Learning Platform",
+    description=(
+        "REST API for the **ThinkCode** algorithms learning platform.\n\n"
+        "- Students practice problems, receive AI hints and tutor chat, and track mastery.\n"
+        "- Instructors manage course content, design pedagogical flows, and view class analytics.\n"
+        "- All endpoints require a `Bearer` JWT token except `/auth/login` and `/auth/register`.\n"
+    ),
     version="1.0.0",
+    openapi_tags=_TAGS_METADATA,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",

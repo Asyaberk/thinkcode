@@ -20,6 +20,8 @@ from app.db.models import User, Class, Enrollment
 
 from app.core.config import settings
 
+from app.schemas import ClassOut, EnrollmentOut, EnrollmentActionOut, EnrollStatusOut
+
 import openai
 
 import json
@@ -96,8 +98,7 @@ class ClassUpdate(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.get("/my")
-
+@router.get("/my", response_model=list[ClassOut], summary="List classes for the current user (role-aware)")
 def my_courses(
 
     db: Session = Depends(get_db),
@@ -186,8 +187,7 @@ def my_courses(
 
         return result
 
-@router.get("/all")
-
+@router.get("/all", response_model=list[ClassOut], summary="List all active classes in the system")
 def all_courses(
 
     db: Session = Depends(get_db),
@@ -262,8 +262,7 @@ def all_courses(
 
     return result
 
-@router.get("/search")
-
+@router.get("/search", response_model=list[ClassOut], summary="Full-text search across class name, code, description, and tags")
 def search_classes(
 
     q: str = "",
@@ -354,8 +353,7 @@ def search_classes(
 
     return result
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=ClassOut, summary="Create a new class (instructor only)")
 def create_class(
 
     body: ClassCreate,
@@ -418,8 +416,7 @@ def create_class(
 
     return _class_to_dict(cls, current_user, 0, True)
 
-@router.put("/{class_id}")
-
+@router.put("/{class_id}", response_model=ClassOut, summary="Update class details (instructor only)")
 def update_class(
 
     class_id: str,
@@ -474,8 +471,7 @@ def update_class(
 
     return _class_to_dict(cls, current_user, total, True)
 
-@router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
-
+@router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Soft-delete a class (instructor only)")
 def delete_class(
 
     class_id: str,
@@ -502,8 +498,7 @@ def delete_class(
 
     db.commit()
 
-@router.post("/{class_id}/enroll", status_code=status.HTTP_201_CREATED)
-
+@router.post("/{class_id}/enroll", status_code=status.HTTP_201_CREATED, response_model=EnrollStatusOut, summary="Request enrollment in a class (student only)")
 def enroll(
 
     class_id: str,
@@ -580,8 +575,7 @@ def enroll(
 
     return {"detail": "Enrollment requested — awaiting instructor approval", "status": "pending"}
 
-@router.delete("/{class_id}/enroll", status_code=status.HTTP_200_OK)
-
+@router.delete("/{class_id}/enroll", status_code=status.HTTP_200_OK, response_model=EnrollStatusOut, summary="Cancel pending request or drop active enrollment (student only)")
 def unenroll(
 
     class_id: str,
@@ -624,8 +618,7 @@ def unenroll(
 
 # ── Enrollment Management (Instructor only) ──────────────────────────────────
 
-@router.get("/{class_id}/enrollments")
-
+@router.get("/{class_id}/enrollments", response_model=list[EnrollmentOut], summary="List enrollment requests for a class (instructor only)")
 def list_enrollments(
 
     class_id: str,
@@ -716,8 +709,7 @@ def list_enrollments(
 
     return result
 
-@router.patch("/{class_id}/enrollments/{enrollment_id}/approve")
-
+@router.patch("/{class_id}/enrollments/{enrollment_id}/approve", response_model=EnrollmentActionOut, summary="Approve a pending enrollment request (instructor only)")
 def approve_enrollment(
 
     class_id: str,
@@ -766,8 +758,7 @@ def approve_enrollment(
 
     return {"detail": "Enrollment approved", "enrollment_id": enrollment_id}
 
-@router.patch("/{class_id}/enrollments/{enrollment_id}/reject")
-
+@router.patch("/{class_id}/enrollments/{enrollment_id}/reject", response_model=EnrollmentActionOut, summary="Reject a pending enrollment request (instructor only)")
 def reject_enrollment(
 
     class_id: str,
