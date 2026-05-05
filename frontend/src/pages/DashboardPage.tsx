@@ -215,6 +215,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </motion.div>
           )}
 
+          {/* ── Page Banner ─────────────────────────────────────────────────── */}
+          <div className="mb-8 p-5 bg-slate-900/60 border border-slate-800 rounded-2xl flex items-start gap-4">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <BookOpen size={16} className="text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white mb-0.5">Welcome to your Course Home</p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                This is your personal learning hub for this course. Track your overall progress, continue from where you left off in the curriculum, check your activity streak, and see which topics need the most attention — all in one place.
+              </p>
+            </div>
+          </div>
+
           {/* ── Main Grid ────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 

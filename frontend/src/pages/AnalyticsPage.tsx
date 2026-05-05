@@ -394,6 +394,19 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
           </header>
 
+          {/* Page Banner */}
+          <div className="mb-10 p-5 bg-slate-900/60 border border-slate-800 rounded-2xl flex items-start gap-4">
+            <div className="w-9 h-9 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <TrendingUp size={16} className="text-violet-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white mb-0.5">Your Learning Analytics</p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                This page breaks down your performance across every topic in the course — how much you've mastered, how active you've been day-by-day, where you stand in the class, and how you use hints. An AI-generated insight summarises your strongest and weakest areas so you know exactly where to focus next.
+              </p>
+            </div>
+          </div>
+
           {/* ── Hero Stats Row ─────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
             {/* Mastery Score */}

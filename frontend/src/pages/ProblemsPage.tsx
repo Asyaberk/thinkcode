@@ -232,7 +232,7 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
 
           
 
-          <header className="mb-12">
+          <header className="mb-8">
 
             <motion.h1
 
@@ -256,7 +256,19 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
 
           </header>
 
-          {/* Arama ve Filtreler */}
+          {/* Page Banner */}
+          <div className="mb-8 p-5 bg-slate-900/60 border border-slate-800 rounded-2xl flex items-start gap-4">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <Search size={16} className="text-blue-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white mb-0.5">Practice Problems</p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Browse all problems assigned to this course. Use the search bar and filters to find problems by difficulty or type. Solved problems are marked with a green checkmark — unsolved ones are waiting for you. Click any row to open the problem and start solving.
+              </p>
+            </div>
+          </div>
+
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 mb-8 shadow-xl">
 
