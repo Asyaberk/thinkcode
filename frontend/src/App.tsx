@@ -60,7 +60,7 @@ import { useMastery } from './hooks/useMastery';
 
 import { useActiveFlow } from './hooks/useActiveFlow';
 
-import { useCourses, enrollCourse, unenrollCourse, createCourse, updateCourse, deleteCourse } from './hooks/useCourses';
+import { useCourses, enrollCourse, unenrollCourse, createCourse, updateCourse, deleteCourse, listEnrollments } from './hooks/useCourses';
 
 import { getProblemsByTopic } from './api/problems';
 
@@ -153,6 +153,17 @@ export default function App() {
   );
 
   const { courses: allCourses, enrolledCourseIds, pendingCourseIds, refetch: refetchCourses } = useCourses(userRole, token);
+
+  // Global pending enrollment count — shown as amber badge on all instructor sidebar pages
+  const [pendingEnrollmentsCount, setPendingEnrollmentsCount] = useState(0);
+
+  useEffect(() => {
+    if (userRole !== 'Instructor' || !activeCourseId || !token) return;
+    listEnrollments(activeCourseId, token, 'pending')
+      .then(data => setPendingEnrollmentsCount(data.length))
+      .catch(() => setPendingEnrollmentsCount(0));
+  }, [userRole, activeCourseId, token]);
+
 
   const handleEnroll = async (courseId: string) => {
 
@@ -1037,7 +1048,7 @@ export default function App() {
           courseName={courseName}
 
           activeCourseId={activeCourseId}
-
+          pendingEnrollmentsCount={pendingEnrollmentsCount}
         />
 
       )}
@@ -1073,7 +1084,7 @@ export default function App() {
           courseName={courseName}
 
           activeCourseId={activeCourseId}
-
+          pendingEnrollmentsCount={pendingEnrollmentsCount}
         />
 
       )}
@@ -1111,7 +1122,7 @@ export default function App() {
           courseName={courseName}
 
           onDeploySuccess={handleDeploySuccess}
-
+          pendingEnrollmentsCount={pendingEnrollmentsCount}
         />
 
       )}

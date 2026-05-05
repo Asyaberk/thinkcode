@@ -172,6 +172,9 @@ interface InstructorDashboardProps {
 
   activeCourseId?: string;
 
+  /** Amber badge count for pending enrollment requests. */
+  pendingEnrollmentsCount?: number;
+
 }
 
 // Letter grade bins — passing = 35 (D-)
@@ -307,7 +310,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   userRole,
 
   activeCourseId,
-
+  pendingEnrollmentsCount = 0,
 }) => {
 
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
@@ -655,7 +658,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
         onFlowDesignerClick={onFlowDesignerClick}
 
         onEnrollmentManagementClick={onEnrollmentManagementClick}
-
+        pendingEnrollmentsCount={pendingEnrollmentsCount}
         onSwitchCourse={onSwitchCourse}
 
         onLogout={onLogout}

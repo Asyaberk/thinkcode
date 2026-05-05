@@ -1,53 +1,29 @@
 import React, { useState, useMemo, useEffect } from 'react';
-
 import { motion, AnimatePresence } from 'motion/react';
-
 import { 
-
   Sparkles, 
-
   GitBranch,
-
   Settings,
-
   Layers,
-
   Clock,
-
   BookOpen,
-
   FileText,
-
   Play,
-
   MessageCircle,
-
   List,
-
   Code,
-
   Lightbulb,
-
   Shield,
-
   BarChart,
-
   CheckCircle,
-
   ArrowRight,
-
   Eye,
-
   AlertCircle,
-
   Check,
-
   Rocket,
-
   ExternalLink,
-
   RefreshCw,
-
+  SlidersHorizontal,
 } from 'lucide-react';
 
 import { Sidebar } from '../components/Sidebar';
@@ -99,9 +75,9 @@ interface FlowDesignerPageProps {
   userRole?: UserRole;
 
   /** Called after successful deploy — receives the class_id deployed to */
-
   onDeploySuccess?: (classId: string) => void;
-
+  /** Amber badge count for pending enrollment requests. */
+  pendingEnrollmentsCount?: number;
 }
 
 type NodeType = 
@@ -146,101 +122,25 @@ interface Connection {
 
 }
 
-const NODE_CATEGORIES: Record<string, { label: string; nodes: { type: NodeType; label: string; icon: any; color: string }[] }> = {
-
-  CONTENT: {
-
-    label: 'CONTENT',
-
-    nodes: [
-
-      { type: 'LESSON', label: 'Lesson', icon: BookOpen, color: '#00b4d8' },
-
-      { type: 'SHOW_PDF', label: 'Show PDF', icon: FileText, color: '#00b4d8' },
-
-      { type: 'SHOW_VIDEO', label: 'Show Video', icon: Play, color: '#00b4d8' },
-
-    ]
-
-  },
-
-  QUESTIONS: {
-
-    label: 'QUESTIONS',
-
-    nodes: [
-
-      { type: 'CONCEPTUAL', label: 'Conceptual', icon: MessageCircle, color: '#3b82f6' },
-
-      { type: 'MULTIPLE_CHOICE', label: 'Multiple Choice', icon: List, color: '#3b82f6' },
-
-      { type: 'CODING', label: 'Coding', icon: Code, color: '#3b82f6' },
-
-    ]
-
-  },
-
-  SUPPORT: {
-
-    label: 'SUPPORT',
-
-    nodes: [
-
-      { type: 'HINT', label: 'Hint', icon: Lightbulb, color: '#f59e0b' },
-
-      { type: 'EXPLANATION', label: 'Explanation', icon: BookOpen, color: '#f59e0b' },
-
-      { type: 'WORKED_EXAMPLE', label: 'Worked Example', icon: Layers, color: '#f59e0b' },
-
-    ]
-
-  },
-
-  LOGIC: {
-
-    label: 'LOGIC',
-
-    nodes: [
-
-      { type: 'BRANCH', label: 'Branch', icon: GitBranch, color: '#8b5cf6' },
-
-      { type: 'MASTERY_GATE', label: 'Mastery Gate', icon: Shield, color: '#8b5cf6' },
-
-      { type: 'SCORE_CHECK', label: 'Score Check', icon: BarChart, color: '#8b5cf6' },
-
-    ]
-
-  },
-
-  TIMING: {
-
-    label: 'TIMING',
-
-    nodes: [
-
-      { type: 'SPACED_REVIEW', label: 'Spaced Review', icon: Clock, color: '#64748b' },
-
-    ]
-
-  },
-
-  COMPLETE: {
-
-    label: 'COMPLETE',
-
-    nodes: [
-
-      { type: 'MARK_DONE', label: 'Mark Done', icon: CheckCircle, color: '#00e5a0' },
-
-      { type: 'NEXT_SECTION', label: 'Next Section', icon: ArrowRight, color: '#00e5a0' },
-
-    ]
-
-  }
-
+// Inline node style map (replaces the deleted NODE_CATEGORIES constant)
+const NODE_STYLE: Record<string, { icon: any; color: string }> = {
+  LESSON:          { icon: BookOpen,     color: '#00b4d8' },
+  SHOW_PDF:        { icon: FileText,     color: '#00b4d8' },
+  SHOW_VIDEO:      { icon: Play,         color: '#00b4d8' },
+  CONCEPTUAL:      { icon: MessageCircle,color: '#3b82f6' },
+  MULTIPLE_CHOICE: { icon: List,         color: '#3b82f6' },
+  CODING:          { icon: Code,         color: '#3b82f6' },
+  HINT:            { icon: Lightbulb,    color: '#f59e0b' },
+  EXPLANATION:     { icon: BookOpen,     color: '#f59e0b' },
+  WORKED_EXAMPLE:  { icon: Layers,       color: '#f59e0b' },
+  BRANCH:          { icon: GitBranch,    color: '#8b5cf6' },
+  MASTERY_GATE:    { icon: Shield,       color: '#8b5cf6' },
+  SCORE_CHECK:     { icon: BarChart,     color: '#8b5cf6' },
+  SPACED_REVIEW:   { icon: Clock,        color: '#64748b' },
+  MARK_DONE:       { icon: CheckCircle,  color: '#00e5a0' },
+  NEXT_SECTION:    { icon: ArrowRight,   color: '#00e5a0' },
 };
 
-// ── Template display name → backend API pattern identifier ───────────────────
 
 const PATTERN_ID: Record<string, string> = {
 
@@ -420,13 +320,8 @@ const TEMPLATES = {
 
 };
 
-const DEFAULT_COURSES: Course[] = [
+const DEFAULT_COURSES: Course[] = [];
 
-  { id: 'cs101', name: 'CMPE211 — Algorithms & Data Structures', role: 'instructor' },
-
-  { id: 'cs202', name: 'CS204 — Systems Programming', role: 'instructor' },
-
-];
 
 export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
@@ -465,7 +360,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   userRole,
 
   onDeploySuccess,
-
+  pendingEnrollmentsCount = 0,
 }) => {
 
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
@@ -540,29 +435,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
   }, [nodes, connections]);
 
-  const handleAddNode = (type: NodeType, label: string) => {
 
-    const newNode: Node = {
-
-      id: Math.random().toString(36).substr(2, 9),
-
-      type,
-
-      x: 400 + (Math.random() * 40 - 20),
-
-      y: 300 + (Math.random() * 40 - 20),
-
-      label,
-
-      config: {}
-
-    };
-
-    setNodes(prev => [...prev, newNode]);
-
-    setSelectedNodeId(newNode.id);
-
-  };
 
   const applyTemplate = (name: string) => {
 
@@ -801,7 +674,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
         onFlowDesignerClick={onFlowDesignerClick}
 
         onEnrollmentManagementClick={onEnrollmentManagementClick}
-
+        pendingEnrollmentsCount={pendingEnrollmentsCount}
         onSwitchCourse={onSwitchCourse}
 
         onLogout={onLogout}
@@ -822,7 +695,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
             <h1 className="text-xl font-bold text-white">Learning Flow Designer</h1>
 
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Build the student experience, node by node</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Select a pattern and tune its parameters</p>
 
           </div>
 
@@ -858,7 +731,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
             >
 
-              {isSaving ? <span className="animate-pulse">Kaydediliyor...</span> : 'Save Draft'}
+              {isSaving ? <span className="animate-pulse">Saving...</span> : 'Save Draft'}
 
             </button>
 
@@ -874,7 +747,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
               <Rocket size={14} />
 
-              {isDeploying ? 'Deploy ediliyor...' : 'Deploy to Students'}
+              {isDeploying ? 'Deploying...' : 'Deploy to Students'}
 
             </button>
 
@@ -886,11 +759,11 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
           {/* Left Panel: Quick Templates + Node Palette */}
 
-          <aside className="w-[220px] bg-[#1a2235] border-r border-slate-800 flex flex-col overflow-hidden">
+          <aside className="w-[240px] bg-[#1a2235] border-r border-slate-800 flex flex-col overflow-hidden">
 
             <div className="p-4 border-b border-slate-800">
 
-              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Quick Templates</h2>
+              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Learning Patterns</h2>
 
             </div>
 
@@ -898,10 +771,11 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
               <p className="text-[9px] text-slate-600 leading-relaxed">
 
-                Science-backed learning patterns. Select one and adjust parameters in the inspector panel.
+                Science-backed learning patterns. Select one and adjust its parameters below.
 
               </p>
 
+              {/* Template cards */}
               <div className="grid grid-cols-1 gap-2">
 
                 {Object.entries(TEMPLATES).map(([name, tmpl]) => (
@@ -942,59 +816,119 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
               </div>
 
-              {/* ── Node Palette ──────────────────────────────── */}
+              {/* ── Pattern Parameters ──────────────────────────── */}
+              <div className="pt-3 border-t border-slate-800 space-y-3">
 
-              <div className="pt-3 border-t border-slate-800">
-
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Add Nodes</p>
-
-                <div className="space-y-3">
-
-                  {Object.entries(NODE_CATEGORIES).map(([catKey, cat]) => (
-
-                    <div key={catKey}>
-
-                      <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-1.5">{cat.label}</p>
-
-                      <div className="flex flex-wrap gap-1">
-
-                        {cat.nodes.map((n) => {
-
-                          const Icon = n.icon;
-
-                          return (
-
-                            <button
-
-                              key={n.type}
-
-                              onClick={() => handleAddNode(n.type, n.label)}
-
-                              title={`Add ${n.label} node`}
-
-                              className="flex items-center gap-1 px-2 py-1 bg-slate-900/60 border border-slate-700 hover:border-[#00e5a0]/40 hover:bg-[#00e5a0]/5 rounded-lg text-[9px] font-bold text-slate-300 transition-all"
-
-                              style={{ borderLeftColor: n.color, borderLeftWidth: 2 }}
-
-                            >
-
-                              <Icon size={8} style={{ color: n.color }} />
-
-                              {n.label}
-
-                            </button>
-
-                          );
-
-                        })}
-
-                      </div>
-
-                    </div>
-
-                  ))}
-
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal size={10} className="text-[#00e5a0]" />
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Pattern Parameters</p>
                 </div>
+
+                {/* Socratic Retry — threshold_score + max_hints */}
+                {activePattern === 'Socratic Retry' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                        Score threshold (%)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-slate-500">If ≥</span>
+                        <input
+                          type="number" min={0} max={100}
+                          value={nodes.find(n => n.type === 'BRANCH')?.config?.threshold_score ?? 80}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            setNodes(prev => prev.map(n => n.type === 'BRANCH' ? { ...n, config: { ...n.config, threshold_score: val } } : n));
+                          }}
+                          className="w-14 bg-[#0f1623] border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0] text-center"
+                        />
+                        <span className="text-[9px] text-slate-500">% → correct path</span>
+                      </div>
+                      <p className="text-[8px] text-slate-600 mt-1">Below threshold → hint path.</p>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                        Max hints before reveal
+                      </label>
+                      <input
+                        type="number" min={1} max={5}
+                        value={nodes.find(n => n.type === 'HINT')?.config?.max_hints ?? 2}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setNodes(prev => prev.map(n => n.type === 'HINT' ? { ...n, config: { ...n.config, max_hints: val } } : n));
+                        }}
+                        className="w-full bg-[#0f1623] border border-slate-700 rounded-xl px-3 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
+                      />
+                      <p className="text-[8px] text-slate-600 mt-1">Student sees this many hints before the answer is revealed.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mastery Gate — consecutive_correct */}
+                {activePattern === 'Mastery Gate' && (
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                      Consecutive correct required
+                    </label>
+                    <input
+                      type="number" min={1} max={10}
+                      value={nodes.find(n => n.type === 'MASTERY_GATE')?.config?.consecutive_correct ?? 3}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setNodes(prev => prev.map(n => n.type === 'MASTERY_GATE' ? { ...n, config: { ...n.config, consecutive_correct: val } } : n));
+                      }}
+                      className="w-full bg-[#0f1623] border border-slate-700 rounded-xl px-3 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
+                    />
+                    <p className="text-[8px] text-slate-600 mt-1">Student must answer correctly this many times in a row to advance.</p>
+                  </div>
+                )}
+
+                {/* Spaced Retrieval — review_days */}
+                {activePattern === 'Spaced Retrieval' && (
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">
+                      Review intervals (days)
+                    </label>
+                    <div className="flex gap-2">
+                      {(nodes.find(n => n.type === 'SPACED_REVIEW')?.config?.review_days ?? [1, 3, 7]).map((day: number, i: number) => (
+                        <input
+                          key={i} type="number" min={1}
+                          value={day}
+                          onChange={(e) => {
+                            const days = [...(nodes.find(n => n.type === 'SPACED_REVIEW')?.config?.review_days ?? [1, 3, 7])];
+                            days[i] = parseInt(e.target.value);
+                            setNodes(prev => prev.map(n => n.type === 'SPACED_REVIEW' ? { ...n, config: { ...n.config, review_days: days } } : n));
+                          }}
+                          className="flex-1 bg-[#0f1623] border border-slate-700 rounded-xl py-2 text-center text-[11px] font-bold text-[#00e5a0] outline-none focus:ring-1 focus:ring-[#00e5a0]"
+                        />
+                      ))}
+                    </div>
+                    <p className="text-[8px] text-slate-600 mt-1">Days after initial learning when reviews are triggered.</p>
+                  </div>
+                )}
+
+                {/* Adaptive Branch — threshold_score */}
+                {activePattern === 'Adaptive Branch' && (
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                      Routing threshold (%)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-slate-500">Score ≥</span>
+                      <input
+                        type="number" min={0} max={100}
+                        value={nodes.find(n => n.type === 'SCORE_CHECK')?.config?.threshold_score ?? 70}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setNodes(prev => prev.map(n => n.type === 'SCORE_CHECK' ? { ...n, config: { ...n.config, threshold_score: val } } : n));
+                        }}
+                        className="w-14 bg-[#0f1623] border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0] text-center"
+                      />
+                      <span className="text-[9px] text-slate-500">% → Advanced path</span>
+                    </div>
+                    <p className="text-[8px] text-slate-600 mt-1">Below threshold → Introductory path.</p>
+                  </div>
+                )}
 
               </div>
 
@@ -1130,9 +1064,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
               {nodes.map((node) => {
 
-                const category = Object.values(NODE_CATEGORIES).find(cat => cat.nodes.some(n => n.type === node.type));
-
-                const nodeInfo = category?.nodes.find(n => n.type === node.type);
+                const nodeInfo = NODE_STYLE[node.type];
 
                 const Icon = nodeInfo?.icon || Settings;
 

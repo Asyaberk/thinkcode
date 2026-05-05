@@ -69,7 +69,8 @@ interface CourseBuilderPageProps {
   userRole?: UserRole;
 
   activeCourseId?: string;
-
+  /** Amber badge count for pending enrollment requests. */
+  pendingEnrollmentsCount?: number;
 }
 
 type Tab = 'Topics' | 'Lessons' | 'Questions';
@@ -779,9 +780,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
   onSectionSelect, onInstructorDashboardClick, onCourseBuilderClick,
 
   onFlowDesignerClick, onEnrollmentManagementClick, onLogout, onSwitchCourse, courseName, userRole,
-
-  activeCourseId
-
+  activeCourseId, pendingEnrollmentsCount = 0,
 }) => {
 
   const [activeTab, setActiveTab] = useState<Tab>('Topics');
@@ -1114,7 +1113,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   const processingCount = files.filter(f => f.status === 'processing').length;
 
-  const pendingCount = files.filter(f => f.status === 'uploaded').length;
+  const uploadPendingCount = files.filter(f => f.status === 'uploaded').length;
 
   const StatusBadge = ({ status }: { status: ResourceItem['status'] }) => {
 
@@ -1207,7 +1206,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         onFlowDesignerClick={onFlowDesignerClick}
 
         onEnrollmentManagementClick={onEnrollmentManagementClick}
-
+        pendingEnrollmentsCount={pendingEnrollmentsCount}
         onSwitchCourse={onSwitchCourse}
 
         onLogout={onLogout} userRole={userRole}
@@ -1572,7 +1571,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                 </div>
 
-                <button onClick={handleExtract} disabled={isExtracting || pendingCount === 0}
+                <button onClick={handleExtract} disabled={isExtracting || uploadPendingCount === 0}
 
                   className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 shrink-0">
 
@@ -1582,7 +1581,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                     : <> Extract Content <ArrowRight size={16} className="text-[#00e5a0]" />
 
-                        {pendingCount > 0 && <span className="bg-[#00e5a0]/20 text-[#00e5a0] text-[9px] font-black px-1.5 py-0.5 rounded">{pendingCount}</span>}
+                        {uploadPendingCount > 0 && <span className="bg-[#00e5a0]/20 text-[#00e5a0] text-[9px] font-black px-1.5 py-0.5 rounded">{uploadPendingCount}</span>}
 
                       </>}
 
