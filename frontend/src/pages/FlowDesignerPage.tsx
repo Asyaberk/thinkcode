@@ -1,1769 +1,587 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Sparkles, 
-  GitBranch,
-  Settings,
-  Layers,
-  Clock,
-  BookOpen,
-  FileText,
-  Play,
-  MessageCircle,
-  List,
-  Code,
-  Lightbulb,
-  Shield,
-  BarChart,
-  CheckCircle,
-  ArrowRight,
-  Eye,
-  AlertCircle,
-  Check,
-  Rocket,
-  ExternalLink,
-  RefreshCw,
-  SlidersHorizontal,
+import {
+  GitBranch, Shield, Clock, BarChart, CheckCircle, ArrowRight,
+  AlertCircle, Check, ExternalLink, Rocket, ChevronRight,
+  Lightbulb, BookOpen, RefreshCw,
 } from 'lucide-react';
-
 import { Sidebar } from '../components/Sidebar';
-
 import { Section, UserRole, Course } from '../types';
-
 import { cn } from '../lib/utils';
-
 import { saveDraftFlow, updateFlow, deployFlow } from '../api/flows';
-
 import type { FlowJson, FlowConfig } from '../api/flows';
-
 import { useInstructorClasses } from '../hooks/useInstructorClasses';
 
 interface FlowDesignerPageProps {
-
   sections: Section[];
-
   classId?: string;
-
   courses?: Course[];
-
   activeCourseId?: string;
-
   onCourseChange?: (id: string) => void;
-
   onDashboardClick: () => void;
-
   onProblemsClick: () => void;
-
   onAnalyticsClick: () => void;
-
   onSectionSelect: (id: string) => void;
-
   onInstructorDashboardClick?: () => void;
-
   onCourseBuilderClick?: () => void;
-
   onFlowDesignerClick?: () => void;
-
   onEnrollmentManagementClick?: () => void;
-
   onLogout?: () => void;
-
   onSwitchCourse?: () => void;
-
   courseName?: string;
-
   userRole?: UserRole;
-
-  /** Called after successful deploy — receives the class_id deployed to */
   onDeploySuccess?: (classId: string) => void;
-  /** Amber badge count for pending enrollment requests. */
   pendingEnrollmentsCount?: number;
 }
 
-type NodeType = 
-
-  | 'LESSON' | 'SHOW_PDF' | 'SHOW_VIDEO'
-
-  | 'CONCEPTUAL' | 'MULTIPLE_CHOICE' | 'CODING'
-
+type NodeType =
+  | 'LESSON' | 'CONCEPTUAL' | 'CODING' | 'MULTIPLE_CHOICE'
   | 'HINT' | 'EXPLANATION' | 'WORKED_EXAMPLE'
-
-  | 'BRANCH' | 'MASTERY_GATE' | 'SCORE_CHECK'
-
-  | 'SPACED_REVIEW'
-
+  | 'BRANCH' | 'MASTERY_GATE' | 'SCORE_CHECK' | 'SPACED_REVIEW'
   | 'MARK_DONE' | 'NEXT_SECTION';
 
-interface Node {
+interface FlowNode { id: string; type: NodeType; label: string; config?: any; }
+interface Connection { from: string; to: string; label?: string; color?: string; }
 
-  id: string;
-
-  type: NodeType;
-
-  x: number;
-
-  y: number;
-
-  label: string;
-
-  config?: any;
-
-}
-
-interface Connection {
-
-  from: string;
-
-  to: string;
-
-  label?: string;
-
-  color?: string;
-
-}
-
-// Inline node style map (replaces the deleted NODE_CATEGORIES constant)
-const NODE_STYLE: Record<string, { icon: any; color: string }> = {
-  LESSON:          { icon: BookOpen,     color: '#00b4d8' },
-  SHOW_PDF:        { icon: FileText,     color: '#00b4d8' },
-  SHOW_VIDEO:      { icon: Play,         color: '#00b4d8' },
-  CONCEPTUAL:      { icon: MessageCircle,color: '#3b82f6' },
-  MULTIPLE_CHOICE: { icon: List,         color: '#3b82f6' },
-  CODING:          { icon: Code,         color: '#3b82f6' },
-  HINT:            { icon: Lightbulb,    color: '#f59e0b' },
-  EXPLANATION:     { icon: BookOpen,     color: '#f59e0b' },
-  WORKED_EXAMPLE:  { icon: Layers,       color: '#f59e0b' },
-  BRANCH:          { icon: GitBranch,    color: '#8b5cf6' },
-  MASTERY_GATE:    { icon: Shield,       color: '#8b5cf6' },
-  SCORE_CHECK:     { icon: BarChart,     color: '#8b5cf6' },
-  SPACED_REVIEW:   { icon: Clock,        color: '#64748b' },
-  MARK_DONE:       { icon: CheckCircle,  color: '#00e5a0' },
-  NEXT_SECTION:    { icon: ArrowRight,   color: '#00e5a0' },
+const NODE_COLOR: Record<string, string> = {
+  LESSON: '#00b4d8', CONCEPTUAL: '#3b82f6', CODING: '#3b82f6',
+  MULTIPLE_CHOICE: '#3b82f6', HINT: '#f59e0b', EXPLANATION: '#f59e0b',
+  WORKED_EXAMPLE: '#f59e0b', BRANCH: '#8b5cf6', MASTERY_GATE: '#8b5cf6',
+  SCORE_CHECK: '#8b5cf6', SPACED_REVIEW: '#64748b',
+  MARK_DONE: '#00e5a0', NEXT_SECTION: '#00e5a0',
 };
-
 
 const PATTERN_ID: Record<string, string> = {
-
-  'Socratic Retry':  'socratic_retry',
-
-  'Mastery Gate':    'mastery_gate',
-
-  'Spaced Retrieval':'spaced_retrieval',
-
+  'Socratic Retry': 'socratic_retry',
+  'Mastery Gate': 'mastery_gate',
+  'Spaced Retrieval': 'spaced_retrieval',
   'Adaptive Branch': 'adaptive_branch',
-
 };
 
-const TEMPLATES = {
+interface Pattern {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  tagline: string;
+  description: string;
+  reference: string;
+  referenceUrl: string;
+  referenceShort: string;
+  nodes: FlowNode[];
+  connections: Connection[];
+  defaultConfig: Record<string, any>;
+}
 
-  'Socratic Retry': {
-
-    pattern: 'socratic_retry',   // ← backend API identifier
-
-    nodes: [
-
-      { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Introduction', config: {} },
-
-      { id: '2', type: 'CONCEPTUAL', x: 270, y: 200, label: 'Concept Check', config: {} },
-
-      { id: '3', type: 'BRANCH', x: 480, y: 200, label: 'Evaluate Answer', config: { threshold_score: 80 } },
-
-      { id: '4', type: 'HINT', x: 480, y: 340, label: 'Conceptual Hint', config: { max_hints: 2 } },
-
-      { id: '5', type: 'CONCEPTUAL', x: 270, y: 340, label: 'Retry Question', config: {} },
-
-      { id: '6', type: 'EXPLANATION', x: 690, y: 200, label: 'Full Explanation', config: {} },
-
-      { id: '7', type: 'MARK_DONE', x: 900, y: 200, label: 'Module Complete', config: {} },
-
-    ] as Node[],
-
-    connections: [
-
-      { from: '1', to: '2' },
-
-      { from: '2', to: '3' },
-
-      { from: '3', to: '6', label: 'CORRECT', color: '#00e5a0' },
-
-      { from: '3', to: '4', label: 'WRONG', color: '#f43f5e' },
-
-      { from: '4', to: '5' },
-
-      { from: '5', to: '3' },
-
-      { from: '6', to: '7' },
-
-    ] as Connection[],
-
-    reference: 'Macina et al. (2023), "MathDial: A Dialogue Tutoring Dataset with Rich Pedagogical Properties Grounded in Math Reasoning Problems." Findings of EMNLP 2023.',
-
+const PATTERNS: Pattern[] = [
+  {
+    id: 'socratic_retry',
+    name: 'Socratic Retry',
+    icon: <Lightbulb size={20} />,
+    tagline: 'Guided hints before revealing the answer',
+    description: 'Students attempt a question. If wrong, they receive a hint and retry. After N hints the answer is revealed with a full explanation. Encourages productive struggle.',
+    reference: 'Macina et al. (2023), "MathDial: A Dialogue Tutoring Dataset." EMNLP.',
     referenceUrl: 'https://arxiv.org/abs/2305.14536',
-
-    referenceShort: 'Macina et al. (2023) · EMNLP · arXiv:2305.14536',
-
-  },
-
-  'Mastery Gate': {
-
-    pattern: 'mastery_gate',
-
+    referenceShort: 'Macina et al. (2023) · EMNLP',
     nodes: [
-
-      { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Core Concept', config: {} },
-
-      { id: '2', type: 'CODING', x: 270, y: 200, label: 'Practice Task', config: {} },
-
-      { id: '3', type: 'MASTERY_GATE', x: 480, y: 200, label: 'Mastery Check', config: { consecutive_correct: 3 } },
-
-      { id: '4', type: 'WORKED_EXAMPLE', x: 480, y: 340, label: 'Remediation', config: {} },
-
-      { id: '5', type: 'NEXT_SECTION', x: 690, y: 200, label: 'Next Topic', config: {} },
-
-    ] as Node[],
-
+      { id: '1', type: 'LESSON', label: 'Introduction' },
+      { id: '2', type: 'CONCEPTUAL', label: 'Concept Check' },
+      { id: '3', type: 'BRANCH', label: 'Evaluate', config: { threshold_score: 80 } },
+      { id: '4', type: 'HINT', label: 'Hint', config: { max_hints: 2 } },
+      { id: '5', type: 'CONCEPTUAL', label: 'Retry' },
+      { id: '6', type: 'EXPLANATION', label: 'Explanation' },
+      { id: '7', type: 'MARK_DONE', label: 'Done' },
+    ],
     connections: [
-
       { from: '1', to: '2' },
-
       { from: '2', to: '3' },
-
-      { from: '3', to: '5', label: 'PASSED', color: '#00e5a0' },
-
-      { from: '3', to: '4', label: 'FAILED', color: '#f43f5e' },
-
-      { from: '4', to: '2' },
-
-    ] as Connection[],
-
-    reference: 'İlic et al. (2022), "A Practical Review of Mastery Learning." American Journal of Pharmaceutical Education.',
-
-    referenceUrl: 'https://pubmed.ncbi.nlm.nih.gov/35027359/',
-
-    referenceShort: 'İlic et al. (2022) · PubMed',
-
-  },
-
-  'Spaced Retrieval': {
-
-    pattern: 'spaced_retrieval',
-
-    nodes: [
-
-      { id: '1', type: 'LESSON', x: 60, y: 200, label: 'Initial Learning', config: {} },
-
-      { id: '2', type: 'SPACED_REVIEW', x: 270, y: 200, label: 'Review Cycle', config: { review_days: [1, 3, 7] } },
-
-      { id: '3', type: 'CONCEPTUAL', x: 480, y: 200, label: 'Retrieval Quiz', config: {} },
-
-      { id: '4', type: 'MARK_DONE', x: 690, y: 200, label: 'Mastered', config: {} },
-
-    ] as Node[],
-
-    connections: [
-
-      { from: '1', to: '2' },
-
-      { from: '2', to: '3' },
-
-      { from: '3', to: '4' },
-
-    ] as Connection[],
-
-    reference: 'Carpenter et al. (2022), "Spacing effects in learning and memory: practical recommendations." Nature Reviews Psychology.',
-
-    referenceUrl: 'https://www.nature.com/articles/s44159-022-00089-1',
-
-    referenceShort: 'Carpenter et al. (2022) · Nature',
-
-  },
-
-  'Adaptive Branch': {
-
-    pattern: 'adaptive_branch',
-
-    nodes: [
-
-      { id: '1', type: 'MULTIPLE_CHOICE', x: 60, y: 200, label: 'Diagnostic', config: {} },
-
-      { id: '2', type: 'SCORE_CHECK', x: 270, y: 200, label: 'Check Level', config: { threshold_score: 70 } },
-
-      { id: '3', type: 'LESSON', x: 480, y: 100, label: 'Advanced Path', config: {} },
-
-      { id: '4', type: 'LESSON', x: 480, y: 300, label: 'Intro Path', config: {} },
-
-      { id: '5', type: 'MARK_DONE', x: 690, y: 200, label: 'Complete', config: {} },
-
-    ] as Node[],
-
-    connections: [
-
-      { from: '1', to: '2' },
-
-      { from: '2', to: '3', label: 'HIGH', color: '#8b5cf6' },
-
-      { from: '2', to: '4', label: 'LOW', color: '#06b6d4' },
-
-      { from: '3', to: '5' },
-
+      { from: '3', to: '6', label: 'CORRECT', color: '#00e5a0' },
+      { from: '3', to: '4', label: 'WRONG', color: '#f43f5e' },
       { from: '4', to: '5' },
-
-    ] as Connection[],
-
-    reference: 'Alharthi et al. (2024), "Personalized Adaptive Learning in Higher Education: A Scoping Review." PMC Open Access.',
-
+      { from: '5', to: '3' },
+      { from: '6', to: '7' },
+    ],
+    defaultConfig: { threshold_score: 80, max_hints: 2 },
+  },
+  {
+    id: 'mastery_gate',
+    name: 'Mastery Gate',
+    icon: <Shield size={20} />,
+    tagline: 'Must answer correctly N times before advancing',
+    description: 'Students must demonstrate consistent mastery by answering correctly several times in a row. Failures route them to a worked example before they retry.',
+    reference: 'İlic et al. (2022), "A Practical Review of Mastery Learning." Am. J. Pharmaceutical Education.',
+    referenceUrl: 'https://pubmed.ncbi.nlm.nih.gov/35027359/',
+    referenceShort: 'İlic et al. (2022) · PubMed',
+    nodes: [
+      { id: '1', type: 'LESSON', label: 'Core Concept' },
+      { id: '2', type: 'CODING', label: 'Practice Task' },
+      { id: '3', type: 'MASTERY_GATE', label: 'Mastery Check', config: { consecutive_correct: 3 } },
+      { id: '4', type: 'WORKED_EXAMPLE', label: 'Remediation' },
+      { id: '5', type: 'NEXT_SECTION', label: 'Next Topic' },
+    ],
+    connections: [
+      { from: '1', to: '2' },
+      { from: '2', to: '3' },
+      { from: '3', to: '5', label: 'PASSED', color: '#00e5a0' },
+      { from: '3', to: '4', label: 'FAILED', color: '#f43f5e' },
+      { from: '4', to: '2' },
+    ],
+    defaultConfig: { consecutive_correct: 3 },
+  },
+  {
+    id: 'spaced_retrieval',
+    name: 'Spaced Retrieval',
+    icon: <Clock size={20} />,
+    tagline: 'Review prompts at scientifically spaced intervals',
+    description: 'After initial learning, the platform automatically schedules review sessions at expanding intervals (e.g. day 1, 3, 7). Based on the spacing effect in cognitive science.',
+    reference: 'Carpenter et al. (2022), "Spacing effects in learning and memory." Nature Reviews Psychology.',
+    referenceUrl: 'https://www.nature.com/articles/s44159-022-00089-1',
+    referenceShort: 'Carpenter et al. (2022) · Nature',
+    nodes: [
+      { id: '1', type: 'LESSON', label: 'Initial Learning' },
+      { id: '2', type: 'SPACED_REVIEW', label: 'Review Cycle', config: { review_days: [1, 3, 7] } },
+      { id: '3', type: 'CONCEPTUAL', label: 'Retrieval Quiz' },
+      { id: '4', type: 'MARK_DONE', label: 'Mastered' },
+    ],
+    connections: [
+      { from: '1', to: '2' },
+      { from: '2', to: '3' },
+      { from: '3', to: '4' },
+    ],
+    defaultConfig: { review_days: [1, 3, 7] },
+  },
+  {
+    id: 'adaptive_branch',
+    name: 'Adaptive Branch',
+    icon: <GitBranch size={20} />,
+    tagline: 'Routes students to different paths based on their score',
+    description: 'A diagnostic question routes students to either an advanced or introductory path based on their score. Personalises the experience without manual grouping.',
+    reference: 'Alharthi et al. (2024), "Personalized Adaptive Learning in Higher Education." PMC.',
     referenceUrl: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC11544060/',
-
     referenceShort: 'Alharthi et al. (2024) · PMC',
+    nodes: [
+      { id: '1', type: 'MULTIPLE_CHOICE', label: 'Diagnostic' },
+      { id: '2', type: 'SCORE_CHECK', label: 'Check Level', config: { threshold_score: 70 } },
+      { id: '3', type: 'LESSON', label: 'Advanced Path' },
+      { id: '4', type: 'LESSON', label: 'Intro Path' },
+      { id: '5', type: 'MARK_DONE', label: 'Complete' },
+    ],
+    connections: [
+      { from: '1', to: '2' },
+      { from: '2', to: '3', label: 'HIGH', color: '#8b5cf6' },
+      { from: '2', to: '4', label: 'LOW', color: '#06b6d4' },
+      { from: '3', to: '5' },
+      { from: '4', to: '5' },
+    ],
+    defaultConfig: { threshold_score: 70 },
+  },
+];
 
+// ── Flow Diagram (static SVG) ─────────────────────────────────────────────────
+const FlowDiagram: React.FC<{ pattern: Pattern; config: Record<string, any> }> = ({ pattern, config }) => {
+  const NODE_W = 110; const NODE_H = 44; const GAP_X = 60; const GAP_Y = 70;
+  // Compute positions: left-to-right layout based on connection depth
+  const depth: Record<string, number> = {};
+  const row: Record<string, number> = {};
+  pattern.nodes.forEach(n => { depth[n.id] = 0; row[n.id] = 0; });
+  // BFS for depth
+  const inEdges: Record<string, string[]> = {};
+  pattern.nodes.forEach(n => { inEdges[n.id] = []; });
+  pattern.connections.forEach(c => { inEdges[c.to]?.push(c.from); });
+  const queue = pattern.nodes.filter(n => inEdges[n.id].length === 0).map(n => n.id);
+  const visited = new Set(queue);
+  queue.forEach(id => { depth[id] = 0; });
+  let q = [...queue];
+  while (q.length) {
+    const id = q.shift()!;
+    pattern.connections.filter(c => c.from === id).forEach(c => {
+      if (!visited.has(c.to)) { visited.add(c.to); depth[c.to] = depth[id] + 1; q.push(c.to); }
+    });
   }
-
+  // Assign rows within same depth
+  const byDepth: Record<number, string[]> = {};
+  pattern.nodes.forEach(n => { const d = depth[n.id] ?? 0; (byDepth[d] = byDepth[d] || []).push(n.id); });
+  Object.values(byDepth).forEach(ids => ids.forEach((id, i) => { row[id] = i; }));
+  const maxDepth = Math.max(...pattern.nodes.map(n => depth[n.id] ?? 0));
+  const maxRow = Math.max(...pattern.nodes.map(n => row[n.id] ?? 0));
+  const W = (maxDepth + 1) * (NODE_W + GAP_X) + 40;
+  const colHeight = (d: number) => (byDepth[d] || []).length;
+  const H = Math.max(200, (maxRow + 1) * (NODE_H + GAP_Y) + 40);
+  const px = (id: string) => (depth[id] ?? 0) * (NODE_W + GAP_X) + 20;
+  const py = (id: string) => {
+    const d = depth[id] ?? 0; const r = row[id] ?? 0; const total = colHeight(d);
+    return (H / 2) - ((total - 1) * (NODE_H + GAP_Y)) / 2 + r * (NODE_H + GAP_Y);
+  };
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: Math.max(180, H) }}>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#475569" />
+        </marker>
+      </defs>
+      {pattern.connections.map((conn, i) => {
+        const fx = px(conn.from) + NODE_W; const fy = py(conn.from) + NODE_H / 2;
+        const tx = px(conn.to); const ty = py(conn.to) + NODE_H / 2;
+        const mx = (fx + tx) / 2;
+        const stroke = conn.color || '#475569';
+        return (
+          <g key={i}>
+            <path d={`M${fx},${fy} C${mx},${fy} ${mx},${ty} ${tx},${ty}`}
+              stroke={stroke} strokeWidth="2" fill="none" markerEnd="url(#arrow)" opacity="0.7" />
+            {conn.label && (
+              <text x={mx} y={(fy + ty) / 2 - 6} textAnchor="middle"
+                fontSize="9" fontWeight="700" fill={stroke} opacity="0.9">
+                {conn.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+      {pattern.nodes.map(node => {
+        const x = px(node.id); const y = py(node.id);
+        const color = NODE_COLOR[node.type] || '#64748b';
+        return (
+          <g key={node.id}>
+            <rect x={x} y={y} width={NODE_W} height={NODE_H} rx="8"
+              fill={`${color}18`} stroke={color} strokeWidth="1.5" />
+            <text x={x + NODE_W / 2} y={y + 14} textAnchor="middle"
+              fontSize="8" fontWeight="800" fill={color} opacity="0.7">
+              {node.type.replace(/_/g, ' ')}
+            </text>
+            <text x={x + NODE_W / 2} y={y + 30} textAnchor="middle"
+              fontSize="11" fontWeight="600" fill="#e2e8f0">
+              {node.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
 };
 
-const DEFAULT_COURSES: Course[] = [];
+// ── Config Panel per pattern ──────────────────────────────────────────────────
+const ConfigPanel: React.FC<{ pattern: Pattern; config: Record<string, any>; onChange: (k: string, v: any) => void }> = ({ pattern, config, onChange }) => {
+  if (pattern.id === 'socratic_retry') return (
+    <div className="space-y-5">
+      <div>
+        <label className="block text-sm font-semibold text-slate-300 mb-1">Pass threshold (%)</label>
+        <p className="text-xs text-slate-500 mb-2">Score at or above this → correct path. Below → hint path.</p>
+        <div className="flex items-center gap-3">
+          <input type="range" min={50} max={100} step={5}
+            value={config.threshold_score ?? 80}
+            onChange={e => onChange('threshold_score', +e.target.value)}
+            className="flex-1 accent-emerald-400" />
+          <span className="text-lg font-black text-emerald-400 w-12 text-right">{config.threshold_score ?? 80}%</span>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold text-slate-300 mb-1">Max hints before reveal</label>
+        <p className="text-xs text-slate-500 mb-2">Student sees this many hints before the answer is shown.</p>
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map(n => (
+            <button key={n} onClick={() => onChange('max_hints', n)}
+              className={cn('w-10 h-10 rounded-xl font-black text-sm transition-all',
+                (config.max_hints ?? 2) === n ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:bg-slate-700')}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+  if (pattern.id === 'mastery_gate') return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-300 mb-1">Consecutive correct answers required</label>
+      <p className="text-xs text-slate-500 mb-3">Student must answer correctly this many times in a row to advance.</p>
+      <div className="flex gap-2">
+        {[2, 3, 4, 5].map(n => (
+          <button key={n} onClick={() => onChange('consecutive_correct', n)}
+            className={cn('w-12 h-12 rounded-xl font-black text-base transition-all',
+              (config.consecutive_correct ?? 3) === n ? 'bg-purple-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700')}>
+            {n}×
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  if (pattern.id === 'spaced_retrieval') return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-300 mb-1">Review intervals (days)</label>
+      <p className="text-xs text-slate-500 mb-3">Days after initial learning when review sessions are triggered.</p>
+      <div className="flex gap-3 items-center">
+        {(config.review_days ?? [1, 3, 7]).map((d: number, i: number) => (
+          <div key={i} className="flex flex-col items-center gap-1">
+            <span className="text-xs text-slate-500">Day {i + 1}</span>
+            <input type="number" min={1} value={d}
+              onChange={e => { const days = [...(config.review_days ?? [1, 3, 7])]; days[i] = +e.target.value; onChange('review_days', days); }}
+              className="w-16 h-12 bg-slate-800 border border-slate-700 rounded-xl text-center text-lg font-black text-cyan-400 outline-none focus:ring-2 focus:ring-cyan-500" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  if (pattern.id === 'adaptive_branch') return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-300 mb-1">Routing threshold (%)</label>
+      <p className="text-xs text-slate-500 mb-2">Score ≥ threshold → Advanced path. Below → Introductory path.</p>
+      <div className="flex items-center gap-3">
+        <input type="range" min={30} max={90} step={5}
+          value={config.threshold_score ?? 70}
+          onChange={e => onChange('threshold_score', +e.target.value)}
+          className="flex-1 accent-purple-400" />
+        <span className="text-lg font-black text-purple-400 w-12 text-right">{config.threshold_score ?? 70}%</span>
+      </div>
+      <div className="flex gap-4 mt-3">
+        <div className="flex items-center gap-2 text-xs text-purple-300"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> ≥ {config.threshold_score ?? 70}% → Advanced</div>
+        <div className="flex items-center gap-2 text-xs text-cyan-300"><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" /> Below → Introductory</div>
+      </div>
+    </div>
+  );
+  return null;
+};
 
-
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
-
-  sections,
-
-  classId: classIdProp,
-
-  courses: coursesProp,
-
-  activeCourseId: activeCourseIdProp,
-
-  onCourseChange,
-
-  onDashboardClick,
-
-  onProblemsClick,
-
-  onAnalyticsClick,
-
-  onSectionSelect,
-
-  onInstructorDashboardClick,
-
-  onCourseBuilderClick,
-
-  onFlowDesignerClick,
-
-  onEnrollmentManagementClick,
-
-  onLogout,
-
-  onSwitchCourse,
-
-  courseName,
-
-  userRole,
-
-  onDeploySuccess,
+  sections, classId: classIdProp, onDashboardClick, onProblemsClick,
+  onAnalyticsClick, onSectionSelect, onInstructorDashboardClick,
+  onCourseBuilderClick, onFlowDesignerClick, onEnrollmentManagementClick,
+  onLogout, onSwitchCourse, courseName, userRole, onDeploySuccess,
   pendingEnrollmentsCount = 0,
 }) => {
-
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
-
   const [activeClassId, setActiveClassId] = React.useState<string>(classIdProp || '');
-
   const activeClass = instructorClasses.find(c => c.class_id === activeClassId) ?? instructorClasses[0];
-
   React.useEffect(() => {
-
     if (instructorClasses.length > 0 && !activeClassId) {
-
       const preferred = instructorClasses.find(c => c.class_id === classIdProp);
-
       setActiveClassId((preferred ?? instructorClasses[0]).class_id);
-
     }
-
   }, [instructorClasses, activeClassId, classIdProp]);
 
-  const handleClassChange = (classId: string) => {
-
-    setActiveClassId(classId);
-
-    setSavedFlowId(null);
-
-    setFlowStatus('DRAFT');
-
-  };
-
-  const [nodes, setNodes] = useState<Node[]>(TEMPLATES['Socratic Retry'].nodes);
-
-  const [connections, setConnections] = useState<Connection[]>(TEMPLATES['Socratic Retry'].connections);
-
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-
+  const [activePatternId, setActivePatternId] = useState<string>('socratic_retry');
+  const [config, setConfig] = useState<Record<string, any>>(PATTERNS[0].defaultConfig);
   const [flowStatus, setFlowStatus] = useState<'DRAFT' | 'SAVED' | 'LIVE'>('DRAFT');
-
-  const [showDeployToast, setShowDeployToast] = useState(false);
-
-  const [toastMessage, setToastMessage] = useState('');
-
-  const [toastType, setToastType] = useState<'success' | 'error'>('success');
-
-  const [isSaving, setIsSaving] = useState(false);
-
-  const [isDeploying, setIsDeploying] = useState(false);
-
   const [savedFlowId, setSavedFlowId] = useState<string | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
-  const [activePattern, setActivePattern] = useState<string>('Socratic Retry');
+  const pattern = useMemo(() => PATTERNS.find(p => p.id === activePatternId) ?? PATTERNS[0], [activePatternId]);
 
-  const [aiSummary, setAiSummary] = useState<string>('');
-
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-
-  const selectedNode = useMemo(() => nodes.find(n => n.id === selectedNodeId), [nodes, selectedNodeId]);
-
-  const stats = useMemo(() => {
-
-    const decisionPoints = nodes.filter(n => ['BRANCH', 'MASTERY_GATE', 'SCORE_CHECK'].includes(n.type)).length;
-
-    return {
-
-      nodes: nodes.length,
-
-      decisions: decisionPoints,
-
-      connections: connections.length
-
-    };
-
-  }, [nodes, connections]);
-
-
-
-  const applyTemplate = (name: string) => {
-
-    const template = TEMPLATES[name as keyof typeof TEMPLATES];
-
-    if (template) {
-
-      setNodes(template.nodes.map(n => ({ ...n, config: { ...n.config } })));
-
-      setConnections(template.connections);
-
-      setSelectedNodeId(null);
-
-      setActivePattern(name);
-
-      setSavedFlowId(null);
-
-      setFlowStatus('DRAFT');
-
-    }
-
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
   };
 
-  const handleNodeClick = (id: string) => {
-
-    setSelectedNodeId(id);
-
-  };
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-
-    setToastMessage(message);
-
-    setToastType(type);
-
-    setShowDeployToast(true);
-
-    setTimeout(() => setShowDeployToast(false), 3500);
-
-  };
-
-  /** Reads node configs and builds the config object to send to the backend. */
-
-  const buildConfig = (): FlowConfig => {
-
-    const masteryNode = nodes.find(n => n.type === 'MASTERY_GATE');
-
-    const branchNode  = nodes.find(n => n.type === 'BRANCH' || n.type === 'SCORE_CHECK');
-
-    const spacedNode  = nodes.find(n => n.type === 'SPACED_REVIEW');
-
-    const hintNode    = nodes.find(n => n.type === 'HINT');
-
-    return {
-
-      ...(masteryNode ? { consecutive_correct: masteryNode.config?.consecutive_correct ?? 3 } : {}),
-
-      ...(branchNode  ? { threshold_score: branchNode.config?.threshold_score ?? 70 }        : {}),
-
-      ...(spacedNode  ? { review_days: spacedNode.config?.review_days ?? [1, 3, 7] }          : {}),
-
-      ...(hintNode    ? { max_hints: hintNode.config?.max_hints ?? 2 }                         : {}),
-
-    };
-
+  const selectPattern = (p: Pattern) => {
+    setActivePatternId(p.id);
+    setConfig(p.defaultConfig);
+    setSavedFlowId(null);
+    setFlowStatus('DRAFT');
   };
 
   const buildFlowJson = (): FlowJson => ({
-
-    nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, label: n.label, config: n.config })),
-
-    connections: connections.map(c => ({ from: c.from, to: c.to, label: c.label, color: c.color })),
-
+    nodes: pattern.nodes.map(n => ({ id: n.id, type: n.type, x: 0, y: 0, label: n.label, config: n.config })),
+    connections: pattern.connections.map(c => ({ from: c.from, to: c.to, label: c.label, color: c.color })),
   });
 
-  const handleSaveDraft = async () => {
+  const buildConfig = (): FlowConfig => config as FlowConfig;
 
-    const targetClassId = activeClass?.class_id;
-
-    if (!targetClassId) {
-
-      showToast('⚠️ No class selected. Please select a class first.', 'error');
-
-      return;
-
-    }
-
-    setIsSaving(true);
-
-    try {
-
-      const payload = {
-
-        class_id: targetClassId,
-
-        pattern: TEMPLATES[activePattern as keyof typeof TEMPLATES].pattern,
-
-        flow_json: buildFlowJson(),
-
-        config: buildConfig(),
-
-      };
-
-      let result;
-
-      if (savedFlowId) {
-
-        result = await updateFlow(savedFlowId, { pattern: payload.pattern, flow_json: payload.flow_json, config: payload.config });
-
-      } else {
-
-        result = await saveDraftFlow(payload);
-
-        setSavedFlowId(result.id);
-
-      }
-
-      setFlowStatus('SAVED');
-
-      showToast(`✓ Flow saved for "${activeClass?.class_code}".`);
-
-    } catch (err: any) {
-
-      showToast(`Save error: ${err.message}`, 'error');
-
-    } finally {
-
-      setIsSaving(false);
-
-    }
-
-  };
 
   const handleDeploy = async () => {
-
-    const targetClassId = activeClass?.class_id;
-
-    if (!targetClassId) {
-
-      showToast('⚠️ No class selected.', 'error');
-
-      return;
-
-    }
-
+    if (!activeClass) { showToast('No class selected', false); return; }
     setIsDeploying(true);
-
     try {
-
-      let flowId = savedFlowId;
-
-      const apiPattern = PATTERN_ID[activePattern] ?? activePattern;
-
-      if (!flowId) {
-
-        const saved = await saveDraftFlow({
-
-          class_id: targetClassId,
-
-          pattern: apiPattern,
-
-          flow_json: buildFlowJson(),
-
-          config: buildConfig(),
-
-        });
-
-        flowId = saved.id;
-
-        setSavedFlowId(flowId);
-
+      let fid = savedFlowId;
+      if (!fid) {
+        const r = await saveDraftFlow({ class_id: activeClass.class_id, pattern: pattern.id, flow_json: buildFlowJson(), config: buildConfig() });
+        fid = r.id; setSavedFlowId(fid);
       } else {
-
-        await updateFlow(flowId, { pattern: apiPattern, flow_json: buildFlowJson(), config: buildConfig() });
-
+        await updateFlow(fid, { pattern: pattern.id, flow_json: buildFlowJson(), config: buildConfig() });
       }
-
-      await deployFlow(flowId!);
-
-      setFlowStatus('LIVE');
-
-      refetchClasses();
-
-      showToast(`🚀 "${activePattern}" deployed to ${activeClass?.class_code}!`);
-
-      // Navigate instructor to the course they just deployed to
-
-      onDeploySuccess?.(targetClassId);
-
-    } catch (err: any) {
-
-      showToast(`Deploy error: ${err.message}`, 'error');
-
-    } finally {
-
-      setIsDeploying(false);
-
-    }
-
-  };
-
-  const updateNodeLabel = (id: string, label: string) => {
-
-    setNodes(prev => prev.map(n => n.id === id ? { ...n, label } : n));
-
-  };
-
-  const updateNodeConfig = (id: string, key: string, value: any) => {
-
-    setNodes(prev => prev.map(n => n.id === id ? { ...n, config: { ...n.config, [key]: value } } : n));
-
+      await deployFlow(fid!);
+      setFlowStatus('LIVE'); refetchClasses();
+      showToast(`🚀 "${pattern.name}" deployed to ${activeClass.class_code}!`);
+      onDeploySuccess?.(activeClass.class_id);
+    } catch (e: any) { showToast(e.message || 'Deploy failed', false); }
+    setIsDeploying(false);
   };
 
   return (
-
-    <div className="flex h-screen bg-[#0f1623] text-slate-200 overflow-hidden font-sans">
-
-      <Sidebar 
-
-        sections={sections}
-
-        activeSectionId="flow-designer"
-
-        onSectionSelect={onSectionSelect}
-
-        onDashboardClick={onDashboardClick}
-
-        onProblemsClick={onProblemsClick}
-
-        onAnalyticsClick={onAnalyticsClick}
-
+    <div className="flex h-screen bg-[#0b1120] text-slate-200 overflow-hidden font-sans">
+      <Sidebar
+        sections={sections} activeSectionId="flow-designer"
+        onSectionSelect={onSectionSelect} onDashboardClick={onDashboardClick}
+        onProblemsClick={onProblemsClick} onAnalyticsClick={onAnalyticsClick}
         onInstructorDashboardClick={onInstructorDashboardClick}
-
         onCourseBuilderClick={onCourseBuilderClick}
-
         onFlowDesignerClick={onFlowDesignerClick}
-
         onEnrollmentManagementClick={onEnrollmentManagementClick}
         pendingEnrollmentsCount={pendingEnrollmentsCount}
-        onSwitchCourse={onSwitchCourse}
-
-        onLogout={onLogout}
-
-        userRole={userRole}
-
-        courseName={courseName}
-
+        onSwitchCourse={onSwitchCourse} onLogout={onLogout}
+        userRole={userRole} courseName={courseName}
       />
 
       <div className="flex-1 flex flex-col ml-72 overflow-hidden">
-
-        {/* Header */}
-
-        <header className="h-20 border-b border-slate-800 bg-[#0f1623] px-8 flex items-center justify-between shrink-0">
-
-          <div>
-
-            <h1 className="text-xl font-bold text-white">Learning Flow Designer</h1>
-
-            <p className="text-[10px] text-slate-400 mt-0.5 max-w-sm leading-relaxed">
-              Design adaptive learning sequences using evidence-based pedagogical patterns, then deploy them live to your students.
-              Each pattern controls how the AI guides students through problems — hints, mastery gates, spaced reviews, and more.
-            </p>
-
-          </div>
-
-          {/* Active class indicator */}
-
-          {activeClass && (
-
-            <div className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-full flex items-center gap-2">
-
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-
-              <span className="text-[11px] font-bold text-slate-300">{activeClass.class_code}</span>
-
-              {activeClass.has_live_flow && (
-
-                <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Live</span>
-
-              )}
-
+        {/* ── Header ── */}
+        <header className="shrink-0 border-b border-slate-800 bg-[#0b1120] px-8 py-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-black text-white tracking-tight">Flow Designer</h1>
+              <p className="text-sm text-slate-400 mt-1 max-w-lg">
+                Choose a research-backed learning pattern, tune its parameters, then deploy to your students with one click.
+              </p>
             </div>
-
-          )}
-
-          <div className="flex items-center gap-3">
-
-            <button 
-
-              onClick={handleSaveDraft}
-
-              disabled={isSaving}
-
-              className="px-4 py-2 border border-slate-700 hover:border-slate-500 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
-
-            >
-
-              {isSaving ? <span className="animate-pulse">Saving...</span> : 'Save Draft'}
-
-            </button>
-
-            <button 
-
-              onClick={handleDeploy}
-
-              disabled={isDeploying}
-
-              className="px-4 py-2 bg-[#00e5a0] hover:bg-[#00c98d] text-slate-950 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/10 disabled:opacity-60"
-
-            >
-
-              <Rocket size={14} />
-
-              {isDeploying ? 'Deploying...' : 'Deploy to Students'}
-
-            </button>
-
+            <div className="flex items-center gap-3 mt-1">
+              {activeClass && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/80 rounded-xl border border-slate-700">
+                  <span className={cn("w-2 h-2 rounded-full", flowStatus === 'LIVE' ? 'bg-emerald-400' : 'bg-slate-500')} />
+                  <span className="text-sm font-bold text-slate-300">{activeClass.class_code}</span>
+                  <span className={cn("text-xs font-black px-2 py-0.5 rounded-md",
+                    flowStatus === 'LIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500')}>
+                    {flowStatus}
+                  </span>
+                </div>
+              )}
+              <button onClick={handleDeploy} disabled={isDeploying}
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-black transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                {isDeploying ? <><RefreshCw size={14} className="animate-spin" /> Deploying…</> : <><Rocket size={14} /> Deploy Flow</>}
+              </button>
+            </div>
           </div>
-
         </header>
 
+        {/* ── Body ── */}
         <div className="flex-1 flex overflow-hidden">
 
-          {/* Left Panel: Quick Templates + Node Palette */}
-
-          <aside className="w-[240px] bg-[#1a2235] border-r border-slate-800 flex flex-col overflow-hidden">
-
-            <div className="p-4 border-b border-slate-800">
-
-              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Learning Patterns</h2>
-
+          {/* LEFT — Pattern selector */}
+          <aside className="w-72 shrink-0 border-r border-slate-800 bg-[#0d1526] flex flex-col overflow-y-auto">
+            <div className="p-5 border-b border-slate-800">
+              <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Learning Patterns</p>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-
-              <p className="text-[9px] text-slate-600 leading-relaxed">
-
-                Science-backed learning patterns. Select one and adjust its parameters below.
-
-              </p>
-
-              {/* Template cards */}
-              <div className="grid grid-cols-1 gap-2">
-
-                {Object.entries(TEMPLATES).map(([name, tmpl]) => (
-
-                  <button
-
-                    key={name}
-
-                    onClick={() => applyTemplate(name)}
-
-                    className={cn(
-
-                      "p-3 border rounded-xl transition-all text-left",
-
-                      activePattern === name
-
-                        ? "bg-[#00e5a0]/10 border-[#00e5a0]/40"
-
-                        : "bg-slate-900/50 border-slate-800 hover:border-[#00e5a0]/30 hover:translate-y-[-2px]"
-
-                    )}
-
-                  >
-
-                    <div className="text-[10px] font-bold text-white mb-1 flex items-center justify-between">
-
-                      {name}
-
-                      {activePattern === name && <Check size={10} className="text-[#00e5a0]" />}
-
+            <div className="p-4 space-y-2 flex-1">
+              {PATTERNS.map(p => (
+                <button key={p.id} onClick={() => selectPattern(p)}
+                  className={cn(
+                    'w-full text-left p-4 rounded-2xl border transition-all group',
+                    activePatternId === p.id
+                      ? 'bg-emerald-500/10 border-emerald-500/40 shadow-lg shadow-emerald-500/5'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-600 hover:bg-slate-800/40'
+                  )}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center transition-all',
+                      activePatternId === p.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:text-slate-300')}>
+                      {p.icon}
                     </div>
-
-                    <div className="text-[8px] text-slate-500 font-medium leading-tight">{tmpl.referenceShort}</div>
-
-                  </button>
-
-                ))}
-
-              </div>
-
-              {/* ── Pattern Parameters ──────────────────────────── */}
-              <div className="pt-3 border-t border-slate-800 space-y-3">
-
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal size={10} className="text-[#00e5a0]" />
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Pattern Parameters</p>
-                </div>
-
-                {/* Socratic Retry — threshold_score + max_hints */}
-                {activePattern === 'Socratic Retry' && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                        Score threshold (%)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] text-slate-500">If ≥</span>
-                        <input
-                          type="number" min={0} max={100}
-                          value={nodes.find(n => n.type === 'BRANCH')?.config?.threshold_score ?? 80}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            setNodes(prev => prev.map(n => n.type === 'BRANCH' ? { ...n, config: { ...n.config, threshold_score: val } } : n));
-                          }}
-                          className="w-14 bg-[#0f1623] border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0] text-center"
-                        />
-                        <span className="text-[9px] text-slate-500">% → correct path</span>
-                      </div>
-                      <p className="text-[8px] text-slate-600 mt-1">Below threshold → hint path.</p>
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                        Max hints before reveal
-                      </label>
-                      <input
-                        type="number" min={1} max={5}
-                        value={nodes.find(n => n.type === 'HINT')?.config?.max_hints ?? 2}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          setNodes(prev => prev.map(n => n.type === 'HINT' ? { ...n, config: { ...n.config, max_hints: val } } : n));
-                        }}
-                        className="w-full bg-[#0f1623] border border-slate-700 rounded-xl px-3 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-                      />
-                      <p className="text-[8px] text-slate-600 mt-1">Student sees this many hints before the answer is revealed.</p>
-                    </div>
+                    {activePatternId === p.id && <Check size={16} className="text-emerald-400" />}
                   </div>
-                )}
-
-                {/* Mastery Gate — consecutive_correct */}
-                {activePattern === 'Mastery Gate' && (
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                      Consecutive correct required
-                    </label>
-                    <input
-                      type="number" min={1} max={10}
-                      value={nodes.find(n => n.type === 'MASTERY_GATE')?.config?.consecutive_correct ?? 3}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        setNodes(prev => prev.map(n => n.type === 'MASTERY_GATE' ? { ...n, config: { ...n.config, consecutive_correct: val } } : n));
-                      }}
-                      className="w-full bg-[#0f1623] border border-slate-700 rounded-xl px-3 py-2 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-                    />
-                    <p className="text-[8px] text-slate-600 mt-1">Student must answer correctly this many times in a row to advance.</p>
-                  </div>
-                )}
-
-                {/* Spaced Retrieval — review_days */}
-                {activePattern === 'Spaced Retrieval' && (
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">
-                      Review intervals (days)
-                    </label>
-                    <div className="flex gap-2">
-                      {(nodes.find(n => n.type === 'SPACED_REVIEW')?.config?.review_days ?? [1, 3, 7]).map((day: number, i: number) => (
-                        <input
-                          key={i} type="number" min={1}
-                          value={day}
-                          onChange={(e) => {
-                            const days = [...(nodes.find(n => n.type === 'SPACED_REVIEW')?.config?.review_days ?? [1, 3, 7])];
-                            days[i] = parseInt(e.target.value);
-                            setNodes(prev => prev.map(n => n.type === 'SPACED_REVIEW' ? { ...n, config: { ...n.config, review_days: days } } : n));
-                          }}
-                          className="flex-1 bg-[#0f1623] border border-slate-700 rounded-xl py-2 text-center text-[11px] font-bold text-[#00e5a0] outline-none focus:ring-1 focus:ring-[#00e5a0]"
-                        />
-                      ))}
-                    </div>
-                    <p className="text-[8px] text-slate-600 mt-1">Days after initial learning when reviews are triggered.</p>
-                  </div>
-                )}
-
-                {/* Adaptive Branch — threshold_score */}
-                {activePattern === 'Adaptive Branch' && (
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                      Routing threshold (%)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-slate-500">Score ≥</span>
-                      <input
-                        type="number" min={0} max={100}
-                        value={nodes.find(n => n.type === 'SCORE_CHECK')?.config?.threshold_score ?? 70}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          setNodes(prev => prev.map(n => n.type === 'SCORE_CHECK' ? { ...n, config: { ...n.config, threshold_score: val } } : n));
-                        }}
-                        className="w-14 bg-[#0f1623] border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white outline-none focus:ring-1 focus:ring-[#00e5a0] text-center"
-                      />
-                      <span className="text-[9px] text-slate-500">% → Advanced path</span>
-                    </div>
-                    <p className="text-[8px] text-slate-600 mt-1">Below threshold → Introductory path.</p>
-                  </div>
-                )}
-
-              </div>
-
+                  <div className="text-sm font-bold text-white mb-0.5">{p.name}</div>
+                  <div className="text-xs text-slate-500 leading-relaxed">{p.tagline}</div>
+                </button>
+              ))}
             </div>
-
           </aside>
 
-          {/* Canvas */}
-
-          <main className="flex-1 bg-[#0f1623] relative overflow-auto cursor-crosshair custom-scrollbar">
-
-            <div className="min-w-[1400px] min-h-[700px] relative">
-
-              {/* Dot Grid */}
-
-              <div 
-
-                className="absolute inset-0 pointer-events-none" 
-
-                style={{ 
-
-                  backgroundImage: 'radial-gradient(#00e5a0 1px, transparent 1px)', 
-
-                  backgroundSize: '28px 28px',
-
-                  opacity: 0.03
-
-                }} 
-
-              />
-
-              {/* SVG Connections */}
-
-              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-
-                <defs>
-
-                  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#475569" />
-
-                  </marker>
-
-                  <linearGradient id="line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-
-                    <stop offset="0%" stopColor="#334155" />
-
-                    <stop offset="50%" stopColor="#475569" />
-
-                    <stop offset="100%" stopColor="#334155" />
-
-                  </linearGradient>
-
-                </defs>
-
-                {connections.map((conn, idx) => {
-
-                  const fromNode = nodes.find(n => n.id === conn.from);
-
-                  const toNode = nodes.find(n => n.id === conn.to);
-
-                  if (!fromNode || !toNode) return null;
-
-                  const startX = fromNode.x + 180;
-
-                  const startY = fromNode.y + 40;
-
-                  const endX = toNode.x;
-
-                  const endY = toNode.y + 40;
-
-                  const cp1x = startX + (endX - startX) / 2;
-
-                  const cp2x = startX + (endX - startX) / 2;
-
-                  return (
-
-                    <g key={idx}>
-
-                      <path
-
-                        d={`M ${startX} ${startY} C ${cp1x} ${startY}, ${cp2x} ${endY}, ${endX} ${endY}`}
-
-                        stroke="url(#line-gradient)"
-
-                        strokeWidth="2"
-
-                        fill="none"
-
-                        markerEnd="url(#arrowhead)"
-
-                        className="connection-line"
-
-                      />
-
-                      {conn.label && (
-
-                        <foreignObject x={(startX + endX) / 2 - 40} y={(startY + endY) / 2 - 10} width="80" height="20">
-
-                          <div className="flex justify-center items-center h-full">
-
-                            <span className={cn(
-
-                              "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border shadow-lg",
-
-                              conn.label === 'CORRECT' || conn.label === 'PASSED' || conn.label === 'HIGH' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500" : 
-
-                              conn.label === 'WRONG' || conn.label === 'FAILED' ? "bg-rose-500/10 border-rose-500/30 text-rose-500" :
-
-                              "bg-purple-500/10 border-purple-500/30 text-purple-500"
-
-                            )}>
-
-                              {conn.label}
-
-                            </span>
-
-                          </div>
-
-                        </foreignObject>
-
-                      )}
-
-                    </g>
-
-                  );
-
-                })}
-
-              </svg>
-
-              {/* Nodes */}
-
-              {nodes.map((node) => {
-
-                const nodeInfo = NODE_STYLE[node.type];
-
-                const Icon = nodeInfo?.icon || Settings;
-
-                const color = nodeInfo?.color || '#64748b';
-
-                return (
-
-                  <motion.div
-
-                    key={node.id}
-
-                    drag
-
-                    dragMomentum={false}
-
-                    onDrag={(e, info) => {
-
-                      setNodes(prev => prev.map(n => n.id === node.id ? { ...n, x: n.x + info.delta.x, y: n.y + info.delta.y } : n));
-
-                    }}
-
-                    onClick={(e) => {
-
-                      e.stopPropagation();
-
-                      handleNodeClick(node.id);
-
-                    }}
-
-                    initial={{ scale: 0.8, opacity: 0 }}
-
-                    animate={{ scale: 1, opacity: 1 }}
-
-                    className={cn(
-
-                      "absolute w-[180px] bg-[#1a2235] border border-slate-800 rounded-2xl shadow-2xl cursor-grab active:cursor-grabbing transition-all z-10",
-
-                      selectedNodeId === node.id ? "ring-2 ring-[#00e5a0] border-transparent" : "hover:border-slate-700"
-
-                    )}
-
-                    style={{ left: node.x, top: node.y, borderLeft: `4px solid ${color}` }}
-
-                  >
-
-                    {/* Ports */}
-
-                    <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-700 rounded-full border-2 border-[#1a2235] z-20" />
-
-                    <div className="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-700 rounded-full border-2 border-[#1a2235] z-20" />
-
-                    <div className="p-3">
-
-                      <div className="flex items-center gap-2 mb-2">
-
-                        <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: `${color}20`, color }}>
-
-                          <Icon size={10} />
-
-                        </div>
-
-                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{node.type.replace('_', ' ')}</span>
-
-                      </div>
-
-                      <p className="text-[11px] font-bold text-white leading-tight">{node.label}</p>
-
-                    </div>
-
-                  </motion.div>
-
-                );
-
-              })}
-
-              {/* Canvas Background Click Handler */}
-
-              <div className="absolute inset-0" onClick={() => setSelectedNodeId(null)} />
-
+          {/* CENTER — Flow diagram + description */}
+          <main className="flex-1 flex flex-col overflow-y-auto bg-[#0b1120]">
+            {/* Diagram */}
+            <div className="p-8 pb-0">
+              <div className="rounded-2xl border border-slate-800 bg-[#0d1526] p-6">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Flow Diagram — {pattern.name}</p>
+                <FlowDiagram pattern={pattern} config={config} />
+              </div>
             </div>
 
+            {/* Description + reference */}
+            <div className="p-8 pt-5">
+              <div className="rounded-2xl border border-slate-800 bg-[#0d1526] p-6 space-y-4">
+                <div>
+                  <h2 className="text-base font-black text-white mb-1">{pattern.name}</h2>
+                  <p className="text-sm text-slate-400 leading-relaxed">{pattern.description}</p>
+                </div>
+                <a href={pattern.referenceUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/20 transition-all">
+                  <ExternalLink size={12} /> {pattern.referenceShort}
+                </a>
+              </div>
+            </div>
           </main>
 
-          {/* Right Panel */}
-
-          <aside className="w-[300px] bg-[#1a2235] border-l border-slate-800 flex flex-col overflow-hidden">
-
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-
-              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-
-                {selectedNode ? 'Node Inspector' : 'Student Experience'}
-
-              </h2>
-
-              {selectedNode ? <Settings size={14} className="text-[#00e5a0]" /> : <Eye size={14} className="text-[#00e5a0]" />}
-
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-
-              {selectedNode ? (
-
-                <div className="space-y-6">
-
-                  {/* Node type badge — read only */}
-
-                  <div className="flex items-center gap-2">
-
-                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Node Type</span>
-
-                    <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded text-[9px] font-black">
-
-                      {selectedNode.type.replace(/_/g, ' ')}
-
-                    </span>
-
+          {/* RIGHT — Configuration */}
+          <aside className="w-80 shrink-0 border-l border-slate-800 bg-[#0d1526] flex flex-col">
+            {/* Current live flow card */}
+            <div className="p-5 border-b border-slate-800">
+              <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">Currently Active Flow</p>
+              {activeClass?.has_live_flow && activeClass.active_pattern ? (() => {
+                const livePattern = PATTERNS.find(p => p.id === activeClass.active_pattern);
+                return (
+                  <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                      {livePattern?.icon ?? <Check size={16} />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-emerald-400">{livePattern?.name ?? activeClass.active_pattern}</p>
+                      <p className="text-xs text-slate-500">{activeClass.total_students} students · Live</p>
+                    </div>
+                    <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   </div>
-
-                  <div className="text-[11px] font-bold text-white">{selectedNode.label}</div>
-
-                  <div className="space-y-4">
-
-                    {/* MASTERY_GATE */}
-
-                    {selectedNode.type === 'MASTERY_GATE' && (
-
-                      <div>
-
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">Consecutive correct required:</label>
-
-                        <input
-
-                          type="number" min={1} max={10}
-
-                          value={selectedNode.config?.consecutive_correct ?? 3}
-
-                          onChange={(e) => updateNodeConfig(selectedNode.id, 'consecutive_correct', parseInt(e.target.value))}
-
-                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-medium text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-
-                        />
-
-                        <p className="text-[9px] text-slate-600 mt-1">Student must answer this many in a row before moving on.</p>
-
-                      </div>
-
-                    )}
-
-                    {/* BRANCH */}
-
-                    {selectedNode.type === 'BRANCH' && (
-
-                      <div className="space-y-3">
-
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Score threshold (%):</label>
-
-                        <div className="flex items-center gap-2">
-
-                          <span className="text-[10px] text-slate-500">If score ≥</span>
-
-                          <input
-
-                            type="number" min={0} max={100}
-
-                            value={selectedNode.config?.threshold_score ?? 80}
-
-                            onChange={(e) => updateNodeConfig(selectedNode.id, 'threshold_score', parseInt(e.target.value))}
-
-                            className="w-16 bg-[#0f1623] border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-
-                          />
-
-                          <span className="text-[10px] text-slate-500">% → Correct path</span>
-
-                        </div>
-
-                        <p className="text-[9px] text-slate-600">Below threshold → Hint path.</p>
-
-                      </div>
-
-                    )}
-
-                    {/* SCORE_CHECK */}
-
-                    {selectedNode.type === 'SCORE_CHECK' && (
-
-                      <div>
-
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">Score threshold (%):</label>
-
-                        <input
-
-                          type="number" min={0} max={100}
-
-                          value={selectedNode.config?.threshold_score ?? 70}
-
-                          onChange={(e) => updateNodeConfig(selectedNode.id, 'threshold_score', parseInt(e.target.value))}
-
-                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-medium text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-
-                        />
-
-                        <p className="text-[9px] text-slate-600 mt-1">HIGH path if score ≥ threshold, LOW path otherwise.</p>
-
-                      </div>
-
-                    )}
-
-                    {/* SPACED_REVIEW */}
-
-                    {selectedNode.type === 'SPACED_REVIEW' && (
-
-                      <div>
-
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 block">Review intervals (days):</label>
-
-                        <div className="flex gap-2">
-
-                          {(selectedNode.config?.review_days ?? [1, 3, 7]).map((day: number, i: number) => (
-
-                            <input
-
-                              key={i} type="number" min={1}
-
-                              value={day}
-
-                              onChange={(e) => {
-
-                                const days = [...(selectedNode.config?.review_days ?? [1, 3, 7])];
-
-                                days[i] = parseInt(e.target.value);
-
-                                updateNodeConfig(selectedNode.id, 'review_days', days);
-
-                              }}
-
-                              className="flex-1 bg-[#0f1623] border border-slate-800 rounded-xl py-2 text-center text-xs font-bold text-[#00e5a0] outline-none focus:ring-1 focus:ring-[#00e5a0]"
-
-                            />
-
-                          ))}
-
-                        </div>
-
-                        <p className="text-[9px] text-slate-600 mt-1">Days after initial learning when review is triggered.</p>
-
-                      </div>
-
-                    )}
-
-                    {/* HINT */}
-
-                    {selectedNode.type === 'HINT' && (
-
-                      <div>
-
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">Max hints before answer reveal:</label>
-
-                        <input
-
-                          type="number" min={1} max={5}
-
-                          value={selectedNode.config?.max_hints ?? 2}
-
-                          onChange={(e) => updateNodeConfig(selectedNode.id, 'max_hints', parseInt(e.target.value))}
-
-                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-medium text-white outline-none focus:ring-1 focus:ring-[#00e5a0]"
-
-                        />
-
-                        <p className="text-[9px] text-slate-600 mt-1">Student sees this many hints before the answer is shown.</p>
-
-                      </div>
-
-                    )}
-
-                    {/* No config nodes */}
-
-                    {!['MASTERY_GATE', 'BRANCH', 'SCORE_CHECK', 'SPACED_REVIEW', 'HINT'].includes(selectedNode.type) && (
-
-                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-
-                        <p className="text-[10px] text-slate-500">No configurable parameters for this node type.</p>
-
-                      </div>
-
-                    )}
-
+                );
+              })() : (
+                <div className="flex items-center gap-3 p-3 bg-slate-800/60 border border-slate-700 rounded-xl">
+                  <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-slate-500 shrink-0">
+                    <BookOpen size={16} />
                   </div>
-
-                  <div className="pt-4 border-t border-slate-800">
-
-                    <div className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-2">Student sees</div>
-
-                    <p className="text-[10px] text-slate-400">
-
-                      {selectedNode.type === 'LESSON' && 'The core educational content.'}
-
-                      {selectedNode.type === 'CONCEPTUAL' && 'A thought-provoking question to test understanding.'}
-
-                      {selectedNode.type === 'MULTIPLE_CHOICE' && 'A multiple-choice question with instant feedback.'}
-
-                      {selectedNode.type === 'CODING' && 'A coding task with a live editor.'}
-
-                      {selectedNode.type === 'HINT' && 'A subtle nudge to help them solve the problem.'}
-
-                      {selectedNode.type === 'EXPLANATION' && 'A full explanation of the correct answer.'}
-
-                      {selectedNode.type === 'WORKED_EXAMPLE' && 'A step-by-step worked solution.'}
-
-                      {selectedNode.type === 'BRANCH' && 'A seamless transition based on their score.'}
-
-                      {selectedNode.type === 'MASTERY_GATE' && 'Must answer correctly N times in a row.'}
-
-                      {selectedNode.type === 'SCORE_CHECK' && 'Routed to advanced or intro path based on score.'}
-
-                      {selectedNode.type === 'SPACED_REVIEW' && 'A reminder to review on scheduled days.'}
-
-                      {selectedNode.type === 'MARK_DONE' && 'Module completion confirmation.'}
-
-                      {selectedNode.type === 'NEXT_SECTION' && 'Auto-advance to the next section.'}
-
-                    </p>
-
+                  <div>
+                    <p className="text-sm font-bold text-slate-400">No flow active</p>
+                    <p className="text-xs text-slate-600">Students are using the default path</p>
                   </div>
-
                 </div>
-
-              ) : (
-
-                <div className="space-y-8">
-
-                  <div className="bg-[#0f1623] border border-slate-800 rounded-2xl p-5 space-y-4">
-
-                    <div className="flex items-center justify-between">
-
-                      <div className="flex items-center gap-2 text-[#00e5a0]">
-
-                        <Sparkles size={16} />
-
-                        <span className="text-[10px] font-black uppercase tracking-widest">AI Summary</span>
-
-                      </div>
-
-                      <button
-
-                        onClick={async () => {
-
-                          if (!savedFlowId) {
-
-                            setToastMessage('Save the flow as draft first');
-
-                            setToastType('error');
-
-                            setShowDeployToast(true);
-
-                            setTimeout(() => setShowDeployToast(false), 3000);
-
-                            return;
-
-                          }
-
-                          setIsGeneratingSummary(true);
-
-                          try {
-
-                            const { api } = await import('../api/client');
-
-                            const res = await api.post<{ summary: string }>(`/flows/${savedFlowId}/summary`, {});
-
-                            setAiSummary(res.summary);
-
-                          } catch (e) {
-
-                            setAiSummary('Failed to generate summary. Please try again.');
-
-                          } finally {
-
-                            setIsGeneratingSummary(false);
-
-                          }
-
-                        }}
-
-                        disabled={isGeneratingSummary}
-
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[9px] font-bold text-emerald-400 uppercase tracking-widest transition-all disabled:opacity-50"
-
-                      >
-
-                        {isGeneratingSummary ? (
-
-                          <><RefreshCw size={10} className="animate-spin" /> Generating...</>
-
-                        ) : (
-
-                          <><Sparkles size={10} /> Generate</>
-
-                        )}
-
-                      </button>
-
-                    </div>
-
-                    <p className="text-[11px] text-slate-300 leading-relaxed italic">
-
-                      {aiSummary || (
-
-                        <span className="text-slate-600">
-
-                          Click "Generate" to get an AI-powered pedagogical analysis of this flow.
-
-                        </span>
-
-                      )}
-
-                    </p>
-
-                  </div>
-
-                  <div className="space-y-4">
-
-                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Flow Stats</div>
-
-                    <div className="grid grid-cols-2 gap-3">
-
-                      <div className="bg-[#0f1623] border border-slate-800 p-3 rounded-xl">
-
-                        <div className="text-[18px] font-bold text-white">{stats.nodes}</div>
-
-                        <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Nodes</div>
-
-                      </div>
-
-                      <div className="bg-[#0f1623] border border-slate-800 p-3 rounded-xl">
-
-                        <div className="text-[18px] font-bold text-white">{stats.decisions}</div>
-
-                        <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Decisions</div>
-
-                      </div>
-
-                    </div>
-
-                    <div className="p-3 bg-[#0f1623] border border-slate-800 rounded-xl flex items-center justify-between">
-
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Active Pattern</span>
-
-                      <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded text-[9px] font-black uppercase tracking-widest">
-
-                        {activePattern.replace(/_/g, ' ')}
-
-                      </span>
-
-                    </div>
-
-                    {activeClass && (
-
-                      <div className="p-3 bg-[#0f1623] border border-slate-800 rounded-xl flex items-center justify-between">
-
-                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Deployed to</span>
-
-                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded text-[9px] font-black">
-
-                          {activeClass.class_code} — {activeClass.total_students} students
-
-                        </span>
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                  <div className="space-y-3">
-
-                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-
-                      <FileText size={12} />
-
-                      Pattern Reference
-
-                    </div>
-
-                    {(() => {
-
-                      const tmpl = TEMPLATES[activePattern as keyof typeof TEMPLATES];
-
-                      return tmpl ? (
-
-                        <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-2xl space-y-3">
-
-                          <p className="text-[10px] text-slate-400 italic leading-relaxed">📄 {tmpl.reference}</p>
-
-                          <a
-
-                            href={tmpl.referenceUrl}
-
-                            target="_blank"
-
-                            rel="noopener noreferrer"
-
-                            className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[10px] font-bold text-blue-400 hover:bg-blue-500/20 transition-all group"
-
-                          >
-
-                            <ExternalLink size={12} className="group-hover:scale-110 transition-transform" />
-
-                            {tmpl.referenceShort}
-
-                          </a>
-
-                        </div>
-
-                      ) : (
-
-                        <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
-
-                          <p className="text-[10px] text-slate-500 italic">Select a template to view its research reference.</p>
-
-                        </div>
-
-                      );
-
-                    })()}
-
-                  </div>
-
-                </div>
-
               )}
-
             </div>
-
+            {/* Parameters */}
+            <div className="p-5 border-b border-slate-800">
+              <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Configure Parameters</p>
+              <p className="text-xs text-slate-600 mt-1">Tune the selected pattern, then deploy.</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <ConfigPanel pattern={pattern} config={config} onChange={(k, v) => setConfig(prev => ({ ...prev, [k]: v }))} />
+            </div>
+            {/* Stats footer */}
+            <div className="border-t border-slate-800 p-5">
+              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-3">Flow Summary</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Steps', value: pattern.nodes.length },
+                  { label: 'Decisions', value: pattern.nodes.filter(n => ['BRANCH','MASTERY_GATE','SCORE_CHECK'].includes(n.type)).length },
+                  { label: 'Edges', value: pattern.connections.length },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                    <div className="text-xl font-black text-white">{value}</div>
+                    <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wide mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </aside>
-
         </div>
-
-        {/* Status Bar */}
-
-        <footer className="h-10 bg-[#0d1220] border-t border-slate-800 px-6 flex items-center justify-between shrink-0">
-
-          <div className="flex items-center gap-6">
-
-            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
-
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-
-              {stats.nodes} Nodes
-
-            </div>
-
-            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
-
-              <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-
-              {stats.decisions} Decision Points
-
-            </div>
-
-            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
-
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-
-              {stats.connections} Connections
-
-            </div>
-
-          </div>
-
-          <div className="flex items-center gap-2">
-
-            <span className={cn(
-
-              "px-2 py-0.5 rounded text-[9px] font-black tracking-widest border",
-
-              flowStatus === 'DRAFT' && "bg-slate-800 border-slate-700 text-slate-400",
-
-              flowStatus === 'SAVED' && "bg-blue-500/10 border-blue-500/30 text-blue-400",
-
-              flowStatus === 'LIVE' && "bg-[#00e5a0]/10 border-[#00e5a0]/30 text-[#00e5a0]"
-
-            )}>
-
-              {flowStatus}
-
-            </span>
-
-          </div>
-
-          <div className="flex items-center gap-2">
-
-            <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-500">
-
-              <Check size={12} />
-
-              Flow is valid
-
-            </div>
-
-          </div>
-
-        </footer>
-
       </div>
 
-      {/* Toast — Save / Deploy / Error */}
-
+      {/* Toast */}
       <AnimatePresence>
-
-        {showDeployToast && (
-
-          <motion.div
-
-            initial={{ y: 50, opacity: 0 }}
-
-            animate={{ y: 0, opacity: 1 }}
-
-            exit={{ y: 50, opacity: 0 }}
-
-            className={cn(
-
-              "fixed bottom-16 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl font-bold text-sm shadow-2xl flex items-center gap-3",
-
-              toastType === 'success'
-
-                ? "bg-[#00e5a0] text-slate-950"
-
-                : "bg-rose-500 text-white"
-
-            )}
-
-          >
-
-            {toastType === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
-
-            {toastMessage}
-
+        {toast && (
+          <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
+            className={cn('fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl font-bold text-sm shadow-2xl flex items-center gap-3',
+              toast.ok ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white')}>
+            {toast.ok ? <Check size={16} /> : <AlertCircle size={16} />}
+            {toast.msg}
           </motion.div>
-
         )}
-
       </AnimatePresence>
 
       <style>{`
-
-        .custom-scrollbar::-webkit-scrollbar {
-
-          width: 4px;
-
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-
-          background: transparent;
-
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-
-          background: #334155;
-
-          border-radius: 10px;
-
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-
-          background: #475569;
-
-        }
-
-        .connection-line {
-
-          stroke-dasharray: 8;
-
-          animation: dash 30s linear infinite;
-
-        }
-
-        @keyframes dash {
-
-          from { stroke-dashoffset: 1000; }
-
-          to { stroke-dashoffset: 0; }
-
-        }
-
+        .accent-emerald-400 { accent-color: #34d399; }
+        .accent-purple-400  { accent-color: #a78bfa; }
       `}</style>
-
     </div>
-
   );
-
 };
 
 export default FlowDesignerPage;
-
