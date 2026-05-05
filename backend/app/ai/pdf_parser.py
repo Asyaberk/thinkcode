@@ -99,7 +99,13 @@ GLM_MAX_PAGES = 40
 def _process_pdf(file_path: str) -> str:
 
     """
+    Extract text from a PDF file using a cost-priority pipeline.
 
+    Order:
+      1. GLM-OCR  — free, handles scanned PDFs; may be unavailable at night (30s timeout/page)
+      2. pdfplumber — local, free, best for text-embedded PDFs (fallback)
+
+    Raises RuntimeError if both methods fail to produce usable text.
     """
 
     logger.info(f"Processing PDF (GLM-OCR primary): {file_path}")

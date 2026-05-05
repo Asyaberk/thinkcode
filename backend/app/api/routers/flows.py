@@ -134,9 +134,7 @@ def create_flow(
 
 ):
 
-    """
-
-    """
+    """Create a new pedagogical flow (draft status) and associate it with the given class."""
 
     _check_instructor(current_user)
 
@@ -196,9 +194,7 @@ def update_flow(
 
 ):
 
-    """
-
-    """
+    """Update a flow's pattern, configuration, or status. Activating a flow sets all others in the same class to 'draft'."""
 
     _check_instructor(current_user)
 
@@ -236,9 +232,7 @@ def deploy_flow(
 
 ):
 
-    """
-
-    """
+    """Permanently delete a pedagogical flow. Instructor must own the flow."""
 
     _check_instructor(current_user)
 
@@ -284,9 +278,7 @@ def get_active_flow(
 
 ):
 
-    """
-
-    """
+    """Return the currently live (active) flow for the given class, or null if none is active."""
 
     flow = db.query(CourseFlow).filter(
 
@@ -330,9 +322,7 @@ def list_flows(
 
 ):
 
-    """
-
-    """
+    """Return all pedagogical flows created by the current instructor, optionally filtered by class."""
 
     _check_instructor(current_user)
 
@@ -474,9 +464,7 @@ def get_due_spaced_reviews(
 
 ):
 
-    """
-
-    """
+    """Return spaced-retrieval review items due today or earlier for the current student in the given class."""
 
     today = datetime.now(timezone.utc)
 
@@ -574,7 +562,7 @@ def get_adaptive_state(
 
     class_id: str  = Query(..., description="Class UUID"),
 
-    topic_id: str  = Query(..., description="Konu ID"),
+    topic_id: str  = Query(..., description="Topic UUID"),
 
     db: Session = Depends(get_db),
 
@@ -582,9 +570,7 @@ def get_adaptive_state(
 
 ):
 
-    """
-
-    """
+    """Return the student's current adaptive diagnostic state (mastery level and recommended topic) for the given class."""
 
     state = db.query(AdaptiveBranchState).filter(
 
@@ -684,9 +670,7 @@ def complete_adaptive_diagnostic(
 
 ):
 
-    """
-
-    """
+    """Record the student's completion of an adaptive diagnostic topic and advance their branch state."""
 
     active_flow = (
 

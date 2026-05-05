@@ -1,7 +1,11 @@
 """
+Link content extractor.
 
-  1. YouTube — yt-dlp ile ses indir, Whisper API ile transkript al
-
+Supports:
+  1. YouTube — download audio with yt-dlp, transcribe with Whisper API
+  2. Google Drive PDF — convert share URL to download URL, extract with pdfplumber
+  3. Direct PDF URL — download and extract with pdfplumber
+  4. Web page — scrape and clean text with BeautifulSoup
 """
 
 import io
@@ -28,22 +32,20 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-MAX_WHISPER_BYTES = 25 * 1024 * 1024   # 25MB — Whisper API limiti
+MAX_WHISPER_BYTES = 25 * 1024 * 1024   # 25 MB — Whisper API file size limit
 
 MAX_TEXT_CHARS    = 200_000
 
-# ── URL Tipi Tespiti ─────────────────────────────────────────────────────────
+# ── URL type detection ───────────────────────────────────────────────
 
 def detect_url_type(url: str) -> str:
 
     """
-
-      'youtube'        → YouTube veya youtu.be linkleri
-
-      'google_drive'   → drive.google.com linkleri
-
-      'direct_pdf'     → .pdf ile biten URL'ler
-
+    Classify a URL into one of four types:
+      'youtube'       → YouTube or youtu.be links
+      'google_drive'  → drive.google.com links
+      'direct_pdf'    → URLs ending with .pdf
+      'web_page'      → everything else
     """
 
     parsed = urlparse(url.lower())
@@ -67,9 +69,9 @@ def detect_url_type(url: str) -> str:
 def _drive_to_download_url(url: str) -> str:
 
     """
-
-    
-
+    Convert a Google Drive share URL to a direct download URL.
+    Handles /file/d/{id}/ share links and existing uc?id= links.
+    Raises ValueError if the URL format is not recognized.
     """
 
     match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
@@ -86,12 +88,16 @@ def _drive_to_download_url(url: str) -> str:
 
     raise ValueError(f"Unrecognized Google Drive URL format: {url}")
 
-# ── YouTube → Transkript ─────────────────────────────────────────────────────
+# ── YouTube → Transcript ─────────────────────────────────────────────────
 
 def extract_text_from_youtube(url: str, openai_client: OpenAI) -> str:
 
     """
+    Extract transcript text from a YouTube video.
 
+    Strategy:
+      1. Try to retrieve free auto-generated or uploaded captions (no API cost).
+      2. If no captions are available, fall back to Whisper transcription (~$0.006/min).
     """
 
     try:
@@ -125,7 +131,8 @@ def extract_text_from_youtube(url: str, openai_client: OpenAI) -> str:
 def _fetch_youtube_subtitles(url: str) -> str:
 
     """
-
+    Attempt to download free auto-generated or uploaded VTT captions from YouTube.
+    Returns the cleaned caption text, or an empty string if no captions are found.
     """
 
     import yt_dlp
@@ -176,7 +183,7 @@ def _fetch_youtube_subtitles(url: str) -> str:
 
             return ""
 
-        # VTT → Temiz metin
+        # VTT → clean plain text (remove timestamps, tags, and duplicates)
 
         raw = open(vtt_file, encoding="utf-8").read()
 
@@ -200,7 +207,7 @@ def _fetch_youtube_subtitles(url: str) -> str:
 
                 continue
 
-            # HTML tag'lerini temizle (<c>, </c>, <00:00:00.000> vb.)
+            # Strip inline VTT tags (<c>, </c>, <00:00:00.000>, etc.)
 
             line = re.sub(r"<[^>]+>", "", line)
 
@@ -218,7 +225,7 @@ def _fetch_youtube_subtitles(url: str) -> str:
 
 def _fetch_with_whisper(url: str, openai_client: OpenAI) -> str:
 
-    """Ses indir → Whisper API ile transkript al ($0.006/dakika)."""
+    """Download audio with yt-dlp and transcribe it using the Whisper API ($0.006/min)."""
 
     import yt_dlp
 
@@ -284,16 +291,17 @@ def _fetch_with_whisper(url: str, openai_client: OpenAI) -> str:
 
         return f"# {title}\n\n{text}"
 
-# ── URL → Metin ──────────────────────────────────────────────────────────────
+# ── URL → Text ──────────────────────────────────────────────────────────────────────
 
 def extract_text_from_url(url: str) -> str:
 
     """
+    Extract text from a non-YouTube URL.
 
-    - PDF URL → pdfplumber ile sayfa metni
-
-    - Google Drive PDF → indirip pdfplumber
-
+    Routing:
+      - Google Drive PDF → convert to download URL, then extract with pdfplumber
+      - Direct PDF URL   → download and extract with pdfplumber
+      - Web page         → scrape and clean with BeautifulSoup
     """
 
     url_type = detect_url_type(url)
@@ -302,7 +310,7 @@ def extract_text_from_url(url: str) -> str:
 
         download_url = _drive_to_download_url(url)
 
-        logger.info(f"Google Drive PDF indiriliyor: {download_url}")
+        logger.info(f"Google Drive PDF: converting share URL and downloading")
 
         return _extract_from_pdf_url(download_url)
 
@@ -344,7 +352,7 @@ def _extract_from_pdf_url(pdf_url: str) -> str:
 
     pdf_bytes = resp.content
 
-    logger.info(f"PDF indirildi: {len(pdf_bytes) // 1024}KB")
+    logger.info(f"PDF downloaded: {len(pdf_bytes) // 1024}KB")
 
     pages_text = []
 
@@ -410,19 +418,23 @@ def _extract_from_html(url: str) -> str:
 
     return clean_text[:MAX_TEXT_CHARS]
 
-# ── Ana Dispatch Fonksiyonu ──────────────────────────────────────────────────
+# ── Main dispatch function ────────────────────────────────────────────────────────
 
 def extract_text_from_link(url: str, openai_client: OpenAI) -> str:
 
     """
+    Primary entry point: extract text from any supported URL type.
 
-    
-
+    Routes to the appropriate extractor based on detect_url_type():
+      youtube       → extract_text_from_youtube (captions or Whisper)
+      google_drive  → extract_text_from_url (PDF download)
+      direct_pdf    → extract_text_from_url (pdfplumber)
+      web_page      → extract_text_from_url (BeautifulSoup)
     """
 
     url_type = detect_url_type(url)
 
-    logger.info(f"URL tipi: {url_type} → {url[:80]}...")
+    logger.info(f"URL type: {url_type} → {url[:80]}...")
 
     if url_type == "youtube":
 

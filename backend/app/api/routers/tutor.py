@@ -1,7 +1,12 @@
 """
+Tutor router.
 
-  1. classify_intent(mesaj)
-
+Handles student ↔ AI Tutor interactions. The dialog graph automatically
+classifies intent and routes to the appropriate handler:
+  1. classify_intent(message)
+  2. hint request   → generate_hint (DB hints + AI)
+  3. error explain  → explain_error
+  4. general chat   → socratic_tutor
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +21,7 @@ from app.db.models import Problem, AiTutorSession, User, ProblemHint, HintReques
 
 from app.schemas import TutorChatRequest, TutorChatResponse
 
-# Yeni multi-node dialog graph — eski process_tutor_message_sync yerine
+# Multi-node dialog graph (replaces the legacy process_tutor_message_sync)
 
 from app.ai.dialog_graph import process_dialog_message
 
@@ -35,17 +40,12 @@ def chat_with_tutor(
 ):
 
     """
+    Handle a student's chat message to the AI Tutor.
 
-    Ogrencinin AI Tutor ile konusmasi.
-
-    Dialog graph intent'i otomatik classify eder:
-
-    - hint istegi     → generate_hint (DB hints + AI)
-
-    - hata aciklama   → explain_error
-
-    - genel sohbet    → socratic_tutor
-
+    The dialog graph classifies intent automatically:
+    - hint request   → generate_hint (DB hints + AI enrichment)
+    - error explain  → explain_error
+    - general chat   → socratic_tutor
     """
 
     problem = db.get(Problem, body.problem_id)
@@ -54,7 +54,7 @@ def chat_with_tutor(
 
         raise HTTPException(status_code=404, detail="Problem not found")
 
-    # Mevcut hint session bilgisini al (kac kez hint istedi?)
+    # Fetch any existing tutor session (to know how many hints were given)
 
     existing_session = db.query(AiTutorSession).filter_by(
 
@@ -62,7 +62,7 @@ def chat_with_tutor(
 
     ).order_by(AiTutorSession.started_at.desc()).first()
 
-    # DB'den problem hint'lerini al (problem_hints tablosu)
+    # Load problem hints from the problem_hints table
 
     db_hints = db.query(ProblemHint).filter_by(
 
@@ -72,7 +72,7 @@ def chat_with_tutor(
 
     available_hints = [h.content for h in db_hints]
 
-    # Kac kez hint istendigi (hint_requests tablosundan)
+    # Total hints already delivered to this student on this problem
 
     hint_count = db.query(HintRequest).filter_by(
 
@@ -80,13 +80,13 @@ def chat_with_tutor(
 
     ).count()
 
-    # Chat history dict formatina cevir
+    # Convert chat history messages to plain dict format
 
     chat_history_dicts = [{"role": msg.role, "content": msg.content} for msg in body.chat_history]
 
     session_id = f"tutor-{current_user.id}-{problem.id}"
 
-    # ── Dialog graph'i calistir ───────────────────────────────────────────────
+    # ── Run the dialog graph ─────────────────────────────────────────────────
 
     try:
 
@@ -118,7 +118,7 @@ def chat_with_tutor(
 
     intent = result.get("intent", "socratic")
 
-    # ── Hint istegi ise hint_requests tablosuna kaydet ─────────────────────────
+    # ── If intent is a hint request, persist it to hint_requests ────────────
 
     if intent == "hint":
 
@@ -138,11 +138,11 @@ def chat_with_tutor(
 
         db.add(hint_request)
 
-    # ── AI Tutor session'i guncelle / olustur ────────────────────────────────
+    # ── Update or create the AI Tutor session ───────────────────────────────
 
     if existing_session:
 
-        # Mevcut session'i guncelle — tam chat history'yi kaydet
+        # Update existing session — persist full chat history
 
         existing_session.messages = result["chat_history"]
 
@@ -150,7 +150,7 @@ def chat_with_tutor(
 
     else:
 
-        # Yeni session olustur
+        # Create a new session
 
         db_session = AiTutorSession(
 
@@ -180,9 +180,7 @@ def chat_with_tutor(
 
     )
 
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
 
 from pydantic import BaseModel
 
@@ -222,9 +220,7 @@ def playground_chat(
 
 ):
 
-    """
-
-    """
+    """Handle a free-form AI chat message in the code playground (no problem context required)."""
 
     import os
 

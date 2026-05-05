@@ -372,7 +372,7 @@ def get_resource_result(
 
 def list_resources(
 
-    class_id: Optional[str] = None,    # Varsa sadece o derse ait kaynaklar
+    class_id: Optional[str] = None,    # if provided, filter resources to this class only
 
     db: Session = Depends(get_db),
 
@@ -380,9 +380,7 @@ def list_resources(
 
 ):
 
-    """
-
-    """
+    """Return all resources for the instructor. If class_id is provided, returns only resources for that class."""
 
     if current_user.role not in ("instructor", "admin"):
 
@@ -450,9 +448,7 @@ def delete_resource(
 
 ):
 
-    """
-
-    """
+    """Permanently delete a resource and its associated object from MinIO storage."""
 
     # UUID format validation
 
@@ -651,7 +647,10 @@ def _process_link_task(
 ) -> None:
 
     """
+    Background task: extract text content from a URL, persist it to MinIO,
+    and update the resource record with the extracted text.
 
+    Supports YouTube, Google Drive PDF, direct PDF links, and general web pages.
     """
 
     from app.db.session import SessionLocal

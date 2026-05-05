@@ -196,9 +196,7 @@ def all_courses(
 
 ):
 
-    """
-
-    """
+    """Return all active classes in the system, visible to instructors and admins."""
 
     classes = (
 
@@ -276,9 +274,7 @@ def search_classes(
 
 ):
 
-    """
-
-    """
+    """Full-text search across class name, code, and description. Accessible to any authenticated user."""
 
     from sqlalchemy import or_
 

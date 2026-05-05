@@ -1,20 +1,19 @@
 """
+Analytics query functions.
 
+Public API:
   get_student_mastery_summary(db, student_id)
-
   get_class_percentile_rank(db, student_id, class_id)
-
   get_weekly_progress(db, student_id, days)
-
   get_topic_breakdown(db, student_id, class_id)
-
   get_streak_days(db, student_id)
-
   detect_knowledge_gaps(db, class_id, ...)
-
   get_class_student_ranking(db, class_id)
 
-  - COALESCE(expr, 0)         → NULL yerine 0 kullan
+SQL conventions used:
+  - COALESCE(expr, 0)         → replace NULL with 0
+  - DISTINCT ON (col)         → keep only the latest row per group
+  - PERCENT_RANK() OVER (...)  → percentile window function
 """
 from __future__ import annotations
 from sqlalchemy.orm import Session
@@ -153,15 +152,16 @@ def get_topic_breakdown(db: Session, student_id: str, class_id: str) -> list[dic
     """
     Comprehensive per-topic stats: mastery, attempts, hints, time, badge level.
 
-    ONEMLI: 'passed' sayisi LATEST attempt per problem kullanir.
-    Eski formul: COUNT(DISTINCT CASE WHEN is_correct THEN problem_id) = once dogru
-    yapilmis problem hep passed sayilir.
-    Yeni formul: Her problem icin EN SON submission gecerli. Son denemesi yanlis
-    olan bir problem passed saymaz — recompute_mastery ile ayni mantik.
+    IMPORTANT: 'passed' count uses the LATEST attempt per problem.
+    Old formula: COUNT(DISTINCT CASE WHEN is_correct THEN problem_id) —
+      a problem answered correctly once would always be counted as passed.
+    New formula: only the most recent submission per problem counts.
+      A problem where the last attempt was wrong does NOT count as passed —
+      consistent with recompute_mastery logic.
     """
     sql = text("""
         WITH latest_submissions AS (
-            -- Her (student, class, problem) icin sadece EN SON submission
+            -- Latest submission per (student, class, problem)
             SELECT DISTINCT ON (s.problem_id)
                 s.problem_id,
                 s.student_id,
@@ -424,15 +424,15 @@ def get_hint_analytics(db: Session, class_id: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str) -> None:
     """
-    Submission sonrasi StudentTopicMastery'i tek SQL ile hesaplayip upsert eder.
+    Upserts StudentTopicMastery in a single SQL statement after a submission.
 
-    Mastery formulu (per-problem LATEST ATTEMPT, points-weighted):
-      Son deneme dogru → earned_points artar.
-      Son deneme yanlis → earned_points = 0 (onceden dogru olsa bile).
-      mastery = earned_points / max_points * 100 - hint_penalti
+    Mastery formula (per-problem LATEST ATTEMPT, points-weighted):
+      Last attempt correct  → earned_points increases.
+      Last attempt wrong    → earned_points = 0 (even if previously correct).
+      mastery = earned_points / max_points * 100 - hint_penalty
 
-    Bu davranis sebebi: kullanici son denemeyi yanlis yapinca mastery'nin
-    dusmesini istiyoruz — "once dogru, sonra yanlis" durumu yanlis sayilmali.
+    Rationale: when a student's last attempt is wrong, their mastery should
+    decrease — "correct then wrong" must count as wrong.
     """
     sql = text("""
         INSERT INTO student_topic_mastery
@@ -441,7 +441,7 @@ def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str
              last_activity_at, updated_at)
 
         WITH latest_per_problem AS (
-            -- Her problem icin EN SON submission
+            -- Latest submission per problem
             SELECT DISTINCT ON (s.problem_id)
                 s.problem_id,
                 p.points,
@@ -459,7 +459,7 @@ def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str
             :student_id,
             :topic_id,
             :class_id,
-            -- Points-weighted mastery: son deneme dogru olanlar / tum denenenlerin toplam puani
+            -- Points-weighted mastery: sum of points for last-correct attempts / total attempted points
             GREATEST(
                 0,
                 COALESCE(

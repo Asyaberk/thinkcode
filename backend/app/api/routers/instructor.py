@@ -1,11 +1,15 @@
 """
+Instructor router — /api/v1/instructor
 
-Router: /api/v1/instructor
-
-- GET /instructor/me/class         → instructor'un kendi class bilgisi
-
-- POST /instructor/{class_id}/analyze-gaps → AI gap analizi + kaydetme
-
+Endpoints:
+  GET  /instructor/me/class              — Summary of the instructor's active class.
+  GET  /instructor/me/classes            — All active classes with enrollment and flow info.
+  GET  /instructor/{class_id}/dashboard  — Full class analytics dashboard.
+  GET  /instructor/{class_id}/students   — Ranked student list.
+  GET  /instructor/{class_id}/topic-heatmap — Per-topic mastery heatmap.
+  GET  /instructor/{class_id}/knowledge-gaps — Problems with high failure rates.
+  POST /instructor/{class_id}/analyze-gaps   — Run AI gap analysis and persist results.
+  GET  /instructor/{class_id}/hints      — Hint usage analytics.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,9 +36,7 @@ from app.analytics.queries import (
 
 router = APIRouter(prefix="/instructor", tags=["instructor"])
 
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/me/class")
 
@@ -46,9 +48,7 @@ def my_class(
 
 ):
 
-    """
-
-    """
+    """Return a summary of the instructor's primary active class and its enrollment count."""
 
     cls = (
 
@@ -100,9 +100,7 @@ def my_classes(
 
 ):
 
-    """
-
-    """
+    """Return all active classes owned by the instructor, including live flow info per class."""
 
     from app.db.models import CourseFlow
 
@@ -364,7 +362,7 @@ def analyze_and_persist_gaps(
 
     new_gap_count = 0
 
-    # Aktif pedagojik flow bilgisini al
+    # Fetch the currently live pedagogical flow for this class (if any)
 
     from app.db.models import CourseFlow
 

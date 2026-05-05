@@ -1,15 +1,10 @@
 """
+Submissions router.
 
-POST /submissions  →  Yeni cevap kaydet
-
-     - problems_attempted +1
-
-     - mastery_score = 100 * passed / attempted
-
-GET /submissions/me/solved-problem-ids
-
-POST /submissions/{submission_id}/hint
-
+POST /submissions              — Record a new student answer.
+                                 Updates problems_attempted and mastery_score.
+GET  /submissions/me/solved-problem-ids — Return IDs the student answered correctly.
+POST /submissions/{id}/hint    — Deliver a personalized AI hint.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -52,9 +47,8 @@ def submit(
 
         raise HTTPException(404, "Problem not found")
 
-    # class_id: frontend'den gelirse kullan, gelmezse enrollment'dan al
-
-    # Bu sayede frontend class_id'yi cekemese bile mastery guncellenir
+    # Use class_id from the request body; fall back to the student's enrollment
+    # so mastery is always updated even if the frontend omits class_id.
 
     effective_class_id = body.class_id
 
@@ -84,7 +78,7 @@ def submit(
 
         problem_id=body.problem_id,
 
-        class_id=effective_class_id,  # Enrollment'dan alinan class_id'yi kullan
+        class_id=effective_class_id,  # resolved from enrollment if not provided by client
 
         submitted_code=body.submitted_code,
 
@@ -237,7 +231,9 @@ def _maybe_schedule_spaced_reviews(
 ) -> None:
 
     """
-
+    Schedule spaced-retrieval review items when the active flow is 'spaced_retrieval'.
+    Reviews are created for the configured day offsets (default: 1, 3, 7).
+    Skips silently if a review already exists for this student/topic/class.
     """
 
     active_flow = (
@@ -292,7 +288,7 @@ def _maybe_schedule_spaced_reviews(
 
     )
 
-    # Yeterli soru yoksa mevcut soruyu tekrar kullan
+    # If there aren't enough distinct problems, reuse the current one to fill slots.
 
     while len(review_problems) < len(review_days):
 
@@ -322,7 +318,7 @@ def _maybe_schedule_spaced_reviews(
 
         except Exception:
 
-            db.rollback()  # UniqueConstraint ihlalini yoksay
+            db.rollback()  # ignore duplicate-key violations
 
 @router.get("/me/solved-problem-ids")
 
@@ -334,11 +330,7 @@ def get_solved_problem_ids(
 
 ):
 
-    """
-
-    Kullanicinin daha once dogru cevapladigi (is_correct=True) problem_id listesini doner.
-
-    """
+    """Return the list of problem IDs the current user has answered correctly at least once."""
 
     rows = (
 

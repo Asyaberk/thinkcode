@@ -528,9 +528,7 @@ def my_ai_insight(
 
 ):
 
-    """
-
-    """
+    """Generate a personalized AI insight summary for the current student based on their mastery profile and recent activity."""
 
     import os
 

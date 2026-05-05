@@ -7,7 +7,7 @@ import os
 import random
 from datetime import datetime, timezone, timedelta
 
-# Python yolu: /app/scripts/seed/ → /app olarak ekle
+# Ensure the /app package root is on sys.path when running directly inside the container
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from app.db.session import SessionLocal
@@ -15,6 +15,11 @@ from app.db.models import User, Problem, Class, Enrollment, Submission, StudentT
 
 def seed_submissions(db):
     """
+    Seed submission history for all enrolled students.
+
+    Gives the demo user emma.johnson a perfect pass rate, then assigns
+    each remaining student a random pass rate between 35% and 95%.
+    Recomputes topic mastery for the class after seeding.
     """
 
     emma = db.query(User).filter_by(email="emma.johnson@thinkcode.edu").first()
@@ -63,6 +68,10 @@ def seed_submissions(db):
 
 def _seed_student_submissions(db, student, cls, problems, pass_rate: float):
     """
+    Generate simulated submission history for a single student.
+
+    Randomly samples a subset of problems, creates 1-3 attempts per problem,
+    and sets the final attempt's correctness according to pass_rate.
     """
     attempted = random.sample(problems, k=min(len(problems), random.randint(6, len(problems))))
 
@@ -106,7 +115,7 @@ def _seed_student_submissions(db, student, cls, problems, pass_rate: float):
                 max_score=float(problem.points),
                 is_correct=is_correct,
                 attempt_number=attempt_num,
-                time_spent_seconds=random.randint(120, 1800),   # 2-30 dakika
+                time_spent_seconds=random.randint(120, 1800),   # 2-30 minutes
                 submitted_at=base_time + timedelta(
                     hours=i * 6 + attempt_num * 2 + random.randint(0, 4)
                 ),
@@ -117,6 +126,10 @@ def _seed_student_submissions(db, student, cls, problems, pass_rate: float):
 
 def _recompute_all_mastery(db, cls):
     """
+    Recompute and upsert StudentTopicMastery for every student in the class.
+
+    Uses the same latest-attempt, points-weighted formula as the live
+    recompute_mastery() function in analytics/queries.py.
     """
     from sqlalchemy import func
     from app.db.models import Problem as ProblemModel

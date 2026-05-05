@@ -1,4 +1,7 @@
 """
+Seed: Course Classes.
+Creates 5 visually rich courses owned by the first active instructor,
+then enrols up to 15 students in each course.
 """
 from app.db.models import User, Class, Enrollment
 
@@ -47,6 +50,9 @@ COURSES = [
 
 def seed_courses(db):
     """
+    Find the first active instructor, then insert each course from the COURSES list.
+    Skips any course whose code already exists; updates visuals for existing entries.
+    Finally enrols up to 15 students in each newly created course.
     """
     instructor = (
         db.query(User)
