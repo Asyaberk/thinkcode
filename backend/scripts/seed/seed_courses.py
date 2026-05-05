@@ -1,9 +1,6 @@
 """
-Seed: Course Classes — Görsel ve açıklamalı 5 kurs
-Instructor'a ait olarak oluşturulur, bazı öğrenciler kayıtlıdır.
 """
 from app.db.models import User, Class, Enrollment
-
 
 COURSES = [
     {
@@ -48,11 +45,8 @@ COURSES = [
     },
 ]
 
-
 def seed_courses(db):
     """
-    Instructor'u bul (yoksa ilk instructor'u al), görsel kursları ekle.
-    Zaten var olan kurs kodlarını atla.
     """
     instructor = (
         db.query(User)
@@ -68,7 +62,6 @@ def seed_courses(db):
     created = []
     for course_data in COURSES:
         if course_data["code"] in existing_codes:
-            # Güncelle — görsel/açıklama eksikse ekle
             cls = db.query(Class).filter_by(code=course_data["code"]).first()
             if cls:
                 if not cls.description:
@@ -100,11 +93,8 @@ def seed_courses(db):
 
     db.flush()
 
-    # İlk öğrencileri CMPE211 ve CS204'e kaydet (zaten seed_class_and_enrollments yapıyor olabilir)
-    # Diğer kurslar için bazı öğrenciler kaydet
     students = db.query(User).filter_by(role="student", is_active=True).limit(30).all()
     for cls in created:
-        # Zaten kayıtlı olanları atla
         existing_enrollments = {
             e.student_id for e in db.query(Enrollment).filter_by(class_id=cls.id).all()
         }

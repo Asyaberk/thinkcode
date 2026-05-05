@@ -1,7 +1,6 @@
 """
 seed_extra_problems.py
 ======================
-Her Sedgewick topic'i için:
   - 1 coding problem (Java pseudocode stil)
   - 1 open_response problem
   - Her topic'in dersine 2 material (Princeton link + algs4.cs.princeton.edu)
@@ -22,7 +21,6 @@ from app.db.models import Problem, ProblemHint, ProblemTestCase, Topic, Lesson, 
 
 db = SessionLocal()
 
-# ─── Her topic için coding + open_response soruları ────────────────────────────
 TOPIC_PROBLEMS = {
     "Fundamentals": {
         "coding": {
@@ -741,7 +739,7 @@ TOPIC_PROBLEMS = {
     },
 }
 
-# Materials: her topic'in dersine Princeton linki ekle
+# Materials: add Princeton reference links to each topic's lesson
 TOPIC_MATERIALS = {
     "Fundamentals":               ("Sedgewick §1.1-1.4", "https://algs4.cs.princeton.edu/10fundamentals/"),
     "Union-Find":                 ("Sedgewick §1.5", "https://algs4.cs.princeton.edu/15uf/"),
@@ -763,14 +761,14 @@ def run_seed():
     print("\n🌱 Extra Problems Seed — Coding + Open Response + Materials")
     print("=" * 60)
 
-    # Eski coding/open_response problemleri temizle (MCQ'ya dokunma)
+    # Remove old coding/open_response problems (leave MCQs untouched)
     deleted = db.query(Problem).filter(
         Problem.type.in_(["coding", "open_response"])
     ).delete(synchronize_session=False)
-    print(f"  → {deleted} eski coding/open_response problem silindi")
+    print(f"  → {deleted} old coding/open_response problems removed")
     db.commit()
 
-    # Materials temizle ve yeniden ekle
+    # Clear existing materials and re-seed
     db.query(Material).delete(synchronize_session=False)
     db.commit()
 
@@ -786,7 +784,6 @@ def run_seed():
             print(f"  ⚠ Topic not found: {topic_name}")
             continue
 
-        # En son ders'i bul (lesson_id için)
         lesson = db.query(Lesson).filter_by(topic_id=topic.id).order_by(
             Lesson.display_order
         ).first()
@@ -810,7 +807,6 @@ def run_seed():
         )
         db.add(coding_prob)
 
-        # Coding problem için 3 ipucu
         for level, hint_text in enumerate(cd["hints"], start=1):
             db.add(ProblemHint(
                 id=str(uuid.uuid4()),
@@ -875,7 +871,6 @@ def run_seed():
 
     db.commit()
 
-    # Final sayım
     from sqlalchemy import text as sq_text
     p_count = db.execute(sq_text("SELECT COUNT(*) FROM problems")).scalar()
     m_count = db.execute(sq_text("SELECT COUNT(*) FROM materials")).scalar()
@@ -887,7 +882,7 @@ def run_seed():
     print(f"  📊 Toplam materials tablosu: {m_count}")
     print(f"  📊 Toplam test_cases tablosu: {tc_count}")
     print("=" * 60)
-    print("✅ Seed tamamlandı!")
+    print("✅ Seed complete!")
     db.close()
 
 if __name__ == "__main__":

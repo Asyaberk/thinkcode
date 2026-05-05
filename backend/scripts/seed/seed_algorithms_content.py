@@ -1,13 +1,7 @@
 """
-seed_algorithms_content.py — Sedgewick & Wayne Algorithms 4th Ed. içerik seed scripti.
 
 Bu script:
-  1. Mevcut topic/lesson/problem kayıtlarını TEMİZLER (safe: submissions korunur)
-  2. 18 konu için kitaba uygun ders markdown'ları ekler
-  3. Her konu için MCQ + Coding soruları ekler
-  4. Problemler için seçenekler (ProblemOption) ekler
 
-Kullanım:
   docker exec thinkcode-backend python /app/scripts/seed/seed_algorithms_content.py
 """
 
@@ -20,8 +14,6 @@ from app.db.models import Topic, Lesson, Problem, ProblemOption, ProblemHint
 from scripts.seed.topics import seed_topics
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LESSON CONTENT — Her topic slug için markdown ders içeriği
-# Princeton Algorithms 4th Ed. kitabına göre yazılmıştır
 # ─────────────────────────────────────────────────────────────────────────────
 
 LESSONS = {
@@ -832,7 +824,6 @@ Minimum insertions, deletions, substitutions to convert one string to another.
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROBLEMS — Her konu için MCQ + Coding soruları
 # ─────────────────────────────────────────────────────────────────────────────
 
 PROBLEMS = [
@@ -1300,20 +1291,18 @@ PROBLEMS = [
     },
 ]
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # SEED FUNCTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
 def seed_lessons_and_problems():
-    """Topics temizlenip yeniden seed edilir, ardından dersler ve problemler eklenir."""
+    """Clean existing topics and re-seed lessons and problems."""
     db = SessionLocal()
     try:
         print("\n🌱 Sedgewick Algorithms 4th Ed. — Content Seed")
         print("=" * 55)
 
-        # 1. Mevcut lesson ve problem kayıtlarını sil (submissions korunur)
-        print("  → Eski lesson ve problem kayıtları temizleniyor...")
+        print("  → Clearing old lesson and problem records...")
         db.query(ProblemHint).delete()
         db.query(ProblemOption).delete()
         db.query(Problem).delete()
@@ -1327,19 +1316,19 @@ def seed_lessons_and_problems():
         db.commit()
 
         # 3. Lessons ekle
-        print("  → Ders içerikleri ekleniyor...")
+        print("  → Adding lesson content...")
         lesson_count = 0
         topic_to_lesson = {}
         for slug, lesson_data in LESSONS.items():
             if slug not in topic_map:
-                print(f"    [SKIP] '{slug}' topic bulunamadı")
+                print(f"    [SKIP] topic '{slug}' not found")
                 continue
             topic = topic_map[slug]
             lesson = Lesson(
                 topic_id=topic.id,
                 title=lesson_data["title"],
-                summary=lesson_data["title"],  # kısa özet
-                content_markdown=lesson_data["content"].strip(),  # tam markdown içerik
+                summary=lesson_data["title"],
+                content_markdown=lesson_data["content"].strip(),
                 estimated_minutes=lesson_data["estimated_minutes"],
                 display_order=1,
             )
@@ -1356,7 +1345,7 @@ def seed_lessons_and_problems():
         for p_data in PROBLEMS:
             slug = p_data["slug"]
             if slug not in topic_map:
-                print(f"    [SKIP] '{slug}' topic bulunamadı")
+                print(f"    [SKIP] topic '{slug}' not found")
                 continue
             topic = topic_map[slug]
             lesson = topic_to_lesson.get(slug)
@@ -1371,7 +1360,7 @@ def seed_lessons_and_problems():
                 points=p_data["points"],
                 grading_rubric=p_data.get("explanation", ""),  # explanation → grading_rubric
                 starter_code=p_data.get("starter_code", ""),
-                correct_answer=next((t for t, c in p_data.get("options", []) if c), ""),  # doğru şık metni
+                correct_answer=next((t for t, c in p_data.get("options", []) if c), ""),
             )
             db.add(problem)
             db.flush()
@@ -1390,7 +1379,7 @@ def seed_lessons_and_problems():
             for hint_order, hint_text in enumerate(p_data.get("hints", [])):
                 hint = ProblemHint(
                     problem_id=problem.id,
-                    content=hint_text,  # 'text' değil 'content'
+                    content=hint_text,
                     level=hint_order + 1,  # 1=mild, 2=medium, 3=revealing
                 )
                 db.add(hint)
@@ -1400,7 +1389,7 @@ def seed_lessons_and_problems():
         db.commit()
         print(f"  ✓ {problem_count} soru eklendi")
         print("=" * 55)
-        print("✅ Sedgewick içerik seed tamamlandı!")
+        print("✅ Sedgewick content seed complete!")
 
     except Exception as e:
         db.rollback()
@@ -1409,7 +1398,6 @@ def seed_lessons_and_problems():
         raise
     finally:
         db.close()
-
 
 if __name__ == "__main__":
     seed_lessons_and_problems()
