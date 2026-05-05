@@ -144,7 +144,7 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
 
           {/* Header */}
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
-            <div className="flex items-center gap-3 mb-1">
+            <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
                 <Users size={20} />
               </div>
@@ -157,10 +157,30 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
                 )}
               </div>
             </div>
-            <p className="text-slate-500 text-sm mt-2 ml-[52px]">
-              Review and approve student enrollment requests for this course.
-            </p>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex gap-3 items-start">
+              <span className="text-xl shrink-0">🎓</span>
+              <div>
+                <p className="text-sm font-bold text-white mb-0.5">Manage who can access your course</p>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Students who request to join this course appear here as <span className="text-amber-400 font-semibold">Pending</span>. Approve them to grant access,
+                  or reject if they don't belong to your section. Removing an active student immediately revokes their access to all course content.
+                </p>
+                <div className="flex gap-4 mt-2">
+                  {[
+                    { dot: '#f59e0b', label: 'Pending — awaiting your decision' },
+                    { dot: '#10b981', label: 'Active — enrolled & can practice' },
+                    { dot: '#ef4444', label: 'Rejected / Removed' },
+                  ].map(({ dot, label }) => (
+                    <div key={label} className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
+                      <span className="text-[10px] text-slate-500">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </motion.div>
+
 
           {!classId ? (
             <div className="flex flex-col items-center justify-center py-24 text-slate-600">

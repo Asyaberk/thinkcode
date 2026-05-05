@@ -6,11 +6,35 @@ import { BookOpen, Target, Users, Lightbulb, AlertTriangle, TrendingUp, Activity
 const card = "bg-slate-900 border border-slate-800 rounded-2xl p-6";
 const badge = (color: string) => `text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${color}`;
 
-// ── Helper ──────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 const scoreColor = (s: number) => s >= 70 ? '#10b981' : s >= 50 ? '#f59e0b' : '#ef4444';
 const ScoreBar = ({ val, max = 100 }: { val: number; max?: number }) => (
   <div className="w-full h-1.5 rounded-full bg-slate-800 mt-1">
     <div className="h-1.5 rounded-full" style={{ width: `${(val / max) * 100}%`, backgroundColor: scoreColor(val) }} />
+  </div>
+);
+
+// ── Page Banner ───────────────────────────────────────────────────────────────
+const PageBanner = ({ icon, title, description, legendItems }: {
+  icon: string; title: string; description: string;
+  legendItems?: { dot: string; label: string }[];
+}) => (
+  <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-900/60 p-5 flex gap-4 items-start">
+    <div className="text-2xl shrink-0 mt-0.5">{icon}</div>
+    <div className="flex-1 min-w-0">
+      <h2 className="text-sm font-black text-white mb-1">{title}</h2>
+      <p className="text-slate-400 text-xs leading-relaxed">{description}</p>
+      {legendItems && legendItems.length > 0 && (
+        <div className="flex flex-wrap gap-4 mt-3">
+          {legendItems.map(({ dot, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
+              <span className="text-[10px] text-slate-500">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   </div>
 );
 
@@ -21,6 +45,16 @@ export const OverviewView = ({ data, topicHeatmap, engagementData, gapsData, onA
   const worstTopics = [...(topicHeatmap ?? [])].sort((a, b) => (a.avg_mastery ?? 100) - (b.avg_mastery ?? 100)).slice(0, 3);
   return (
     <div className="space-y-6">
+      <PageBanner
+        icon="📊"
+        title="Class Overview — Your Course at a Glance"
+        description="A single-screen summary of your class health. See how many students are active, where the class average stands, and which topics are creating the most friction — all in one view. Use this data to inform your teaching strategy and adjust your course materials."
+        legendItems={[
+          { dot: '#10b981', label: '≥70% Mastered' },
+          { dot: '#f59e0b', label: '50–69% In Progress' },
+          { dot: '#ef4444', label: '<50% Needs Work' },
+        ]}
+      />
       {/* Hero stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
@@ -90,6 +124,16 @@ export const TopicAnalysisView = ({ topicHeatmap }: any) => {
   const topics = [...(topicHeatmap ?? [])].sort((a, b) => (a.avg_mastery ?? 0) - (b.avg_mastery ?? 0));
   return (
     <div className="space-y-4">
+      <PageBanner
+        icon="📚"
+        title="Topic Analysis — Class Mastery by Topic"
+        description="Average mastery score and pass rate per topic across all students. Red bars signal where the class is struggling most — consider revisiting your explanation, adding more exercises, or improving example quality for those topics. Sorted from weakest to strongest."
+        legendItems={[
+          { dot: '#10b981', label: '≥70% — İyi' },
+          { dot: '#f59e0b', label: '50–69% — Gelişiyor' },
+          { dot: '#ef4444', label: '<50% — Müdahale Gerekli' },
+        ]}
+      />
       <div className={card}>
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-2"><BookOpen size={14} /> Topic Mastery Heatmap</h3>
         <p className="text-slate-500 text-xs mb-4">Class average mastery per topic — sorted from weakest to strongest</p>
@@ -139,6 +183,16 @@ export const ProblemInsightsView = ({ problemStats }: any) => {
   });
   return (
     <div className="space-y-4">
+      <PageBanner
+        icon="🎯"
+        title="Problem Insights — Pass Rates & Difficulty Analysis"
+        description="Real pass rate for every problem compared against its expected difficulty label. A positive .Difficulty Gap. means the problem is harder than its label suggests — consider adding hints, splitting it into sub-problems, or updating its difficulty rating. Sorted hardest to easiest."
+        legendItems={[
+          { dot: '#10b981', label: 'Easy (beklenen ≥70% geçme)' },
+          { dot: '#f59e0b', label: 'Medium (beklenen ≥50% geçme)' },
+          { dot: '#ef4444', label: 'Hard (beklenen ≥30% geçme)' },
+        ]}
+      />
       <div className={card}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={14} /> Problem Pass Rates</h3>
@@ -185,6 +239,15 @@ export const StudentPerformanceView = ({ data, engagementData }: any) => {
   const activeNames = new Set((engagementData?.top_active_students ?? []).map((s: any) => `${s.first_name} ${s.last_name}`));
   return (
     <div className="space-y-4">
+      <PageBanner
+        icon="👥"
+        title="Student Performance — Rankings & Engagement"
+        description="All students ranked by mastery score. A green dot means the student was active in the last 7 days; grey means no recent activity. The .Weak Topic. column shows where each student needs the most support — use it to identify who needs 1-on-1 attention."
+        legendItems={[
+          { dot: '#10b981', label: 'Active — practiced in last 7 days' },
+          { dot: '#334155', label: 'Passive — no recent activity' },
+        ]}
+      />
       <div className={card}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users size={14} /> Student Rankings</h3>
@@ -251,6 +314,11 @@ export const HintAnalyticsView = ({ hintData }: any) => {
   const total = byLevel.reduce((s: number, r: any) => s + (r.requests ?? 0), 0);
   return (
     <div className="space-y-4">
+      <PageBanner
+        icon="💡"
+        title="Hint Analytics — Where Students Need Help"
+        description="Shows which problems students ask for help on and at what hint depth. Level 1 is a gentle nudge, Level 2 is more specific guidance, Level 3 is near-solution. High Level 2-3 demand on a problem signals that the underlying concept was not well understood — revisit your in-class explanation for that topic."
+      />
       <div className="grid grid-cols-3 gap-4">
         {byLevel.map((r: any) => (
           <div key={r.hint_level} className={card}>
@@ -287,6 +355,15 @@ export const HintAnalyticsView = ({ hintData }: any) => {
 // ── KNOWLEDGE GAPS ───────────────────────────────────────────────────────────
 export const KnowledgeGapsView = ({ gapsData, onAnalyzeGaps, isGenerating, aiReport }: any) => (
   <div className="space-y-4">
+    <PageBanner
+      icon="🔍"
+      title="Knowledge Gaps — Where Learning Broke Down"
+      description="Problems with a failure rate above 40% — these are the points where classroom communication broke down. This is not just a student problem; it's a signal that the teaching approach for those concepts needs revisiting. Click .AI Analysis. to get pedagogical recommendations tailored to this class."
+      legendItems={[
+        { dot: '#ef4444', label: '>60% failure rate — Critical' },
+        { dot: '#f59e0b', label: '40–60% failure rate — Watch Closely' },
+      ]}
+    />
     <div className={card + ' border-rose-500/20'}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-black text-rose-400 uppercase tracking-widest flex items-center gap-2"><AlertTriangle size={14} /> High Failure Rate Problems</h3>

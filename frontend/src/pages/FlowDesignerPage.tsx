@@ -695,7 +695,10 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
 
             <h1 className="text-xl font-bold text-white">Learning Flow Designer</h1>
 
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Select a pattern and tune its parameters</p>
+            <p className="text-[10px] text-slate-400 mt-0.5 max-w-sm leading-relaxed">
+              Design adaptive learning sequences using evidence-based pedagogical patterns, then deploy them live to your students.
+              Each pattern controls how the AI guides students through problems — hints, mastery gates, spaced reviews, and more.
+            </p>
 
           </div>
 
