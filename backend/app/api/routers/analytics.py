@@ -97,24 +97,23 @@ def my_dashboard(
     subs = subs_query.all()
 
     # Percentile — window function
-
-    percentile_data = {"percentile": 50.0, "rank": None, "total_students": 0, "avg_mastery": 0.0}
+    percentile_data = {"percentile": 50.0, "rank_desc": None, "total_students": 0, "avg_mastery": 0.0}
 
     if class_id:
-
         percentile_data = get_class_percentile_rank(db, current_user.id, class_id)
 
-    # Derive overall score from mastery rows
+    # Overall score: prefer the avg_mastery from student_topic_mastery (used for ranking),
+    # fall back to averaging only attempted topics from mastery_rows.
+    stm_avg = float(percentile_data.get("avg_mastery") or 0)
 
-    scored = [r for r in mastery_rows if r["problems_attempted"] > 0]
-
-    overall = (
-
-        sum(float(r["mastery_score"] or 0) for r in scored) / len(scored)
-
-        if scored else 0.0
-
-    )
+    if stm_avg > 0:
+        overall = stm_avg
+    else:
+        scored = [r for r in mastery_rows if r["problems_attempted"] > 0]
+        overall = (
+            sum(float(r["mastery_score"] or 0) for r in scored) / len(scored)
+            if scored else 0.0
+        )
 
     # Hint usage — hint_requests tablosundan problem bazinda toplam hint sayisi
 
@@ -424,9 +423,9 @@ def my_dashboard(
 
         "percentile": float(percentile_data.get("percentile", 50.0)),
 
-        "rank": percentile_data.get("rank"),
+        "rank": percentile_data.get("rank_desc"),
 
-        "total_students_in_class": percentile_data.get("total_students", 0),
+        "total_students_in_class": int(percentile_data.get("total_students", 0)),
 
         "hint_stats": hint_stats,
 
@@ -515,13 +514,14 @@ def my_progress(
 
     days: int = Query(30, ge=7, le=90),
 
+    class_id: Optional[str] = Query(None, description="Filter activity to a specific class"),
+
     db: Session = Depends(get_db),
 
     current_user: User = Depends(get_current_user),
 
 ):
-
-    return get_weekly_progress(db, current_user.id, days=days)
+    return get_weekly_progress(db, current_user.id, days=days, class_id=class_id)
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -533,6 +533,8 @@ def my_progress(
     summary="AI-generated personalized learning insight",
 )
 def my_ai_insight(
+
+    class_id: Optional[str] = Query(None, description="Filter insights to a specific class"),
 
     db: Session = Depends(get_db),
 
@@ -546,19 +548,20 @@ def my_ai_insight(
 
     from openai import OpenAI
 
-    mastery_rows = get_student_mastery_summary(db, current_user.id)
+    # If no class_id provided, fall back to the student's first active class
+    if not class_id:
+        class_id = _get_class_id(db, current_user.id)
 
-    # Percentile / rank bilgisi
+    mastery_rows = get_student_mastery_summary(db, current_user.id, class_id=class_id)
 
-    class_id = _get_class_id(db, current_user.id)
-
-    percentile_data = {"percentile": 50.0, "rank": None, "total_students": 0}
+    # Percentile / rank
+    percentile_data = {"percentile": 50.0, "rank_desc": None, "total_students": 0}
 
     if class_id:
 
         percentile_data = get_class_percentile_rank(db, current_user.id, class_id)
 
-    rank = percentile_data.get("rank_desc")    # SQL: RANK() ... AS rank_desc
+    rank = percentile_data.get("rank_desc")
 
     total_students = percentile_data.get("total_students", 0)
 

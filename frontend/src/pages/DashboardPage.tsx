@@ -72,7 +72,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     const fetchAll = async () => {
       try {
         const [dash, streak] = await Promise.all([
-          getMyDashboard(),
+          getMyDashboard(classId),
           getMyStreak().catch(() => ({ streak_days: 0, last_active: null })),
         ]);
         setDashData(dash);
@@ -84,7 +84,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       }
     };
     fetchAll();
-  }, [refreshKey]);
+  }, [refreshKey, classId]);
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const completedCount  = sections.filter(s => s.isCompleted).length;

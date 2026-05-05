@@ -132,9 +132,11 @@ export interface AiInsightResponse {
 
  */
 
-export async function getMyDashboard(): Promise<DashboardData> {
+export async function getMyDashboard(classId?: string): Promise<DashboardData> {
 
-  return api.get<DashboardData>('/analytics/me/dashboard');
+  const qs = classId ? `?class_id=${classId}` : '';
+
+  return api.get<DashboardData>(`/analytics/me/dashboard${qs}`);
 
 }
 

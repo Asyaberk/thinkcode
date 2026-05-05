@@ -66,7 +66,7 @@ import { Section, UserRole } from '../types';
 
 import { cn } from '../lib/utils';
 
-import { getMyAiInsight } from '../api/analytics';
+// AI insight is called via api.get directly (to pass class_id)
 
 import { api } from '../api/client';
 
@@ -89,6 +89,9 @@ interface AnalyticsPageProps {
   courseName?: string;
 
   userRole?: UserRole;
+
+  /** Active class UUID — drives all analytics API calls with ?class_id=. */
+  activeCourseId?: string;
 
 }
 
@@ -116,11 +119,15 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
   userRole,
 
+  activeCourseId,
+
 }) => {
 
   const [aiInsight, setAiInsight] = useState<string>("Analyzing your performance data...");
 
   const [isAnalyzing, setIsAnalyzing] = useState(true);
+
+  const [allTopics, setAllTopics] = useState<any[]>([]);
 
   const [accuracyData, setAccuracyData] = useState<{topic:string;accuracy:number}[]>([]);
 
@@ -152,8 +159,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
   const [avgHintUsage, setAvgHintUsage] = useState<number | null>(null);
 
-  // insight endpoint'inden gelen class standing verileri
-
+  // class standing
   const [insightRank, setInsightRank] = useState<number | null>(null);
 
   const [insightPercentile, setInsightPercentile] = useState<number | null>(null);
@@ -168,34 +174,27 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
     const fetchAll = async () => {
 
+      // Build the class_id query string once
+      const classQs = activeCourseId ? `?class_id=${activeCourseId}` : '';
+
       try {
 
-        // 1. AI Insight (backend OpenAI)
-
-        const insightResult = await getMyAiInsight();
+        // 1. AI Insight — pass class_id so rank/percentile are course-specific
+        const insightResult = await api.get<any>(`/analytics/me/ai-insight${classQs}`);
 
         setAiInsight(
-
           insightResult.insight ||
-
           "Focus on graph algorithms — they show the most room for improvement. Strong foundation in sorting!"
-
         );
 
-        // Class standing verileri insight endpoint'inden geldi
-
-        if (insightResult.rank) setInsightRank(insightResult.rank);
-
+        if (insightResult.rank != null) setInsightRank(insightResult.rank);
         if (insightResult.percentile != null) setInsightPercentile(insightResult.percentile);
-
         if (insightResult.total_students) setInsightTotalStudents(insightResult.total_students);
 
       } catch {
 
         setAiInsight(
-
           "You're making great progress! Focus on graph theory and dynamic programming for the biggest gains."
-
         );
 
       } finally {
@@ -206,100 +205,78 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
       try {
 
-        // 2. Dashboard: overall score, rank, class size, stat kart verileri
+        // 2. Dashboard — filtered by activeCourseId
+        const dashboard = await api.get<any>(`/analytics/me/dashboard${classQs}`);
 
-        const dashboard = await api.get<any>('/analytics/me/dashboard');
-
-        setOverallScore(Math.round(parseFloat(dashboard.overall_mastery_score) || 0));
-
-        setRank(dashboard.rank || null);
-
-        setTotalStudents(dashboard.total_students_in_class || 0);
-
-        setPercentile(dashboard.percentile != null ? parseFloat(dashboard.percentile) : null);
-
+        setOverallScore(Math.round(Number(dashboard.overall_mastery_score) || 0));
+        // Prefer dashboard rank (always computed); fall back to insight rank
+        const dashRank = dashboard.rank != null ? Number(dashboard.rank) : null;
+        setRank(dashRank);
+        if (dashRank != null) setInsightRank(dashRank);
+        const dashTotal = dashboard.total_students_in_class || 0;
+        setTotalStudents(dashTotal);
+        if (dashTotal > 0) setInsightTotalStudents(dashTotal);
+        const dashPct = dashboard.percentile != null ? Number(dashboard.percentile) : null;
+        setPercentile(dashPct);
+        if (dashPct != null) setInsightPercentile(dashPct);
         setTotalSolved(dashboard.total_problems_passed || 0);
-
         setAvgTimeMinutes(parseFloat(dashboard.avg_time_minutes) || 0);
-
         setStreakDays(dashboard.streak_days || 0);
 
         const cs = dashboard.class_stats;
-
         if (cs) {
-
           setClassAvgScore(cs.class_avg_score != null ? Math.round(cs.class_avg_score) : null);
-
           setTopPerformerScore(cs.top_performer_score != null ? Math.round(cs.top_performer_score) : null);
-
           setAvgHintUsage(cs.avg_hint_usage != null ? cs.avg_hint_usage : null);
-
         }
 
         if (dashboard.class_code) setClassCode(dashboard.class_code);
-
         if (dashboard.class_name) setClassNameStr(dashboard.class_name);
 
         if (dashboard.class_difficulty && dashboard.class_difficulty.length > 0) {
-
           setClassDifficultyData(dashboard.class_difficulty);
-
         }
 
         const masteryRows: any[] = dashboard.all_topics || [];
 
+        // Store ALL topics (including not-started ones with null mastery)
+        setAllTopics(masteryRows);
+
         if (masteryRows.length > 0) {
-
+          // Include ALL topics — null mastery = not started (show as 0 in chart)
           const topicAccuracy = masteryRows
-
-            .filter((r: any) => parseInt(r.problems_attempted) > 0)
-
             .map((r: any) => ({
-
-              topic: r.topic_name as string,  // tam isim (yatay chart okunur)
-
-              accuracy: Math.round(parseFloat(r.mastery_score) || 0),
-
+              topic: (r.topic_name as string).length > 18
+                ? (r.topic_name as string).slice(0, 16) + '…'
+                : r.topic_name as string,
+              fullName: r.topic_name as string,
+              accuracy: r.mastery_score != null ? Math.round(Number(r.mastery_score)) : -1,
+              attempted: Number(r.problems_attempted) || 0,
             }))
-
-            .sort((a: any, b: any) => b.accuracy - a.accuracy);
-
+            .sort((a: any, b: any) => {
+              // Attempted topics first, sorted by accuracy desc
+              if (a.attempted > 0 && b.attempted === 0) return -1;
+              if (a.attempted === 0 && b.attempted > 0) return 1;
+              return b.accuracy - a.accuracy;
+            });
           setAccuracyData(topicAccuracy);
-
         }
 
-        const pct = parseFloat(dashboard.percentile) || 0;
-
         const total = dashboard.total_students_in_class || 100;
-
         setPositionData([
-
-          { name: 'Top 10%', students: Math.round(total * 0.1) },
-
-          { name: 'Top 25%', students: Math.round(total * 0.25) },
-
-          { name: 'Top 50%', students: Math.round(total * 0.5) },
-
-          { name: 'Bottom 50%', students: Math.round(total * 0.5) },
-
+          { name: 'Top 10%',    students: Math.round(total * 0.1) },
+          { name: 'Top 25%',   students: Math.round(total * 0.25) },
+          { name: 'Top 50%',   students: Math.round(total * 0.5) },
+          { name: 'Bottom 50%',students: Math.round(total * 0.5) },
         ]);
 
-        // Hint usage — her zaman yaz
-
         const hs = dashboard.hint_stats;
-
         if (hs) {
-
           setHintUsageData([
-
-            { name: 'Solved without hints', value: hs.no_hint || 0 },
-
-            { name: 'Used 1 hint',          value: hs.one_hint || 0 },
-
+            { name: 'Solved without hints', value: hs.no_hint    || 0 },
+            { name: 'Used 1 hint',          value: hs.one_hint   || 0 },
             { name: 'Used 2+ hints',        value: hs.multi_hint || 0 },
-
           ]);
-
         }
 
       } catch (err) {
@@ -310,41 +287,30 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
       try {
 
-        // 4. Weekly progress → codingTimeData (son 30 gunun gunluk aktivitesi)
-
-        const progress = await api.get<any[]>('/analytics/me/progress');
+        // 3. Daily activity (last 30 days)
+        const progress = await api.get<any[]>(`/analytics/me/progress${classQs}`);
 
         if (progress && progress.length > 0) {
-
           const timeData = progress.map((p: any) => {
-
             const d = new Date(p.day);
-
             const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
             return {
-
               date: dateLabel,
-
-              total: parseInt(p.submissions_count) || 0,
-
-              correct: parseInt(p.correct_count) || 0,
-
+              total:   parseInt(p.submissions_count) || 0,
+              correct: parseInt(p.correct_count)      || 0,
             };
-
           });
-
           setCodingTimeData(timeData);
-
         }
 
-      } catch { /* fallback default values */ }
+      } catch { /* fallback — chart stays empty */ }
 
     };
 
     fetchAll();
 
-  }, []);
+  // Re-fetch whenever the active course changes
+  }, [activeCourseId]);
 
   return (
 
@@ -428,9 +394,68 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
 
           </header>
 
+          {/* ── Hero Stats Row ─────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+            {/* Mastery Score */}
+            <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.05 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none rounded-2xl"/>
+              <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Your Mastery</div>
+              <div className="text-3xl font-black text-white mt-1">
+                {overallScore != null && overallScore > 0 ? `${Math.round(overallScore)}%` : '—'}
+              </div>
+              <div className="text-[10px] text-emerald-500 font-semibold">
+                {overallScore != null && overallScore > 0 ? 'overall score' : 'no data yet'}
+              </div>
+            </motion.div>
+
+            {/* Class Rank */}
+            <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.1 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none rounded-2xl"/>
+              <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Class Rank</div>
+              <div className="text-3xl font-black text-white mt-1">
+                {(insightRank ?? rank) != null ? `#${insightRank ?? rank}` : '—'}
+              </div>
+              <div className="text-[10px] text-slate-400 font-semibold">
+                of {(insightTotalStudents || totalStudents) > 0 ? `${insightTotalStudents || totalStudents} students` : '—'}
+              </div>
+            </motion.div>
+
+            {/* Percentile */}
+            <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.15 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent pointer-events-none rounded-2xl"/>
+              <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Percentile</div>
+              <div className="text-3xl font-black text-white mt-1">
+                {(insightPercentile ?? percentile) != null
+                  ? `Top ${Math.round(100 - (insightPercentile ?? percentile ?? 50))}%`
+                  : '—'}
+              </div>
+              <div className={`text-[10px] font-semibold ${(insightPercentile ?? percentile ?? 0) >= 70 ? 'text-emerald-400' : (insightPercentile ?? percentile ?? 0) >= 40 ? 'text-amber-400' : 'text-slate-400'}`}>
+                {(insightPercentile ?? percentile) != null
+                  ? (insightPercentile ?? percentile ?? 0) >= 70 ? 'excellent standing'
+                  : (insightPercentile ?? percentile ?? 0) >= 40 ? 'good standing'
+                  : 'keep practicing'
+                  : 'no ranking yet'}
+              </div>
+            </motion.div>
+
+            {/* Problems Solved */}
+            <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.2 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent pointer-events-none rounded-2xl"/>
+              <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Solved</div>
+              <div className="text-3xl font-black text-white mt-1">{totalSolved}</div>
+              <div className="text-[10px] text-slate-400 font-semibold">
+                {streakDays > 0 ? `${streakDays}-day streak 🔥` : 'problems passed'}
+              </div>
+            </motion.div>
+          </div>
+
           {/* AI Insight Panel */}
 
-          <motion.div 
+          <motion.div
 
             initial={{ opacity: 0, y: 20 }}
 
@@ -555,165 +580,69 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
             >
 
               <div className="flex items-center justify-between mb-6">
-
                 <div className="flex items-center gap-3">
-
                   <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-500">
-
                     <BarChart3 size={18} />
-
                   </div>
-
-                  <h3 className="font-bold text-white uppercase tracking-widest text-xs">Accuracy by Topic</h3>
-
+                  <h3 className="font-bold text-white uppercase tracking-widest text-xs">Topic Mastery Breakdown</h3>
                 </div>
-
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Latest Attempt</div>
-
+                <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/>≥70% Mastered</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>50–69% OK</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block"/>{'<'}50% Needs Work</span>
+                </div>
               </div>
 
-              {/* Color legend */}
-
-              <div className="flex items-center gap-4 mb-4">
-
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-
-                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
-
-                  ≥70% Great
-
-                </span>
-
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-
-                  <span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block" />
-
-                  50–69% OK
-
-                </span>
-
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-
-                  <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
-
-                  &lt;50% Needs Work
-
-                </span>
-
-              </div>
-
-              {/* Horizontal bar chart: topic names on the left, accuracy on the right */}
-
-              {accuracyData.length === 0 ? (
-
-                <div className="flex flex-col items-center justify-center h-48 text-slate-600 gap-2">
-
+              {allTopics.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 text-slate-600 gap-2">
                   <BarChart3 size={28} className="opacity-30" />
-
-                  <p className="text-sm">No activity yet — solve some problems to see your accuracy.</p>
-
+                  <p className="text-sm">Select a course to see topic analysis.</p>
                 </div>
-
               ) : (
-
-              <div style={{ height: `${Math.max(260, accuracyData.length * 36)}px` }} className="w-full">
-
-                <ResponsiveContainer width="100%" height="100%">
-
-                  <BarChart
-
-                    data={accuracyData}
-
-                    layout="vertical"
-
-                    margin={{ top: 4, right: 48, left: 8, bottom: 4 }}
-
-                  >
-
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-
-                    <XAxis
-
-                      type="number"
-
-                      domain={[0, 100]}
-
-                      stroke="#475569"
-
-                      fontSize={11}
-
-                      tickLine={false}
-
-                      axisLine={false}
-
-                      tickFormatter={(v) => `${v}%`}
-
-                      ticks={[0, 25, 50, 75, 100]}
-
-                    />
-
-                    <YAxis
-
-                      type="category"
-
-                      dataKey="topic"
-
-                      stroke="#64748b"
-
-                      fontSize={11}
-
-                      tickLine={false}
-
-                      axisLine={false}
-
-                      width={160}
-
-                      tick={{ fill: '#94a3b8', fontSize: 11 }}
-
-                    />
-
-                    <Tooltip
-
-                      cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
-
-                      formatter={(value: number) => [`${value}%`, 'Accuracy']}
-
-                    />
-
-                    <Bar dataKey="accuracy" radius={[0, 4, 4, 0]} label={{ position: 'right', formatter: (v: number) => `${v}%`, fill: '#94a3b8', fontSize: 11 }}>
-
-                      {accuracyData.map((entry: any, index: number) => (
-
-                        <Cell
-
-                          key={`cell-${index}`}
-
-                          fill={
-
-                            entry.accuracy >= 70 ? '#10b981'
-
-                            : entry.accuracy >= 50 ? '#f59e0b'
-
-                            : '#ef4444'
-
-                          }
-
-                          opacity={0.85}
-
-                        />
-
-                      ))}
-
-                    </Bar>
-
-                  </BarChart>
-
-                </ResponsiveContainer>
-
-              </div>
-
+                <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+                  {allTopics.map((t: any, i: number) => {
+                    const score = t.mastery_score != null ? Math.round(Number(t.mastery_score)) : null;
+                    const attempted = Number(t.problems_attempted) || 0;
+                    const passed = Number(t.problems_passed) || 0;
+                    const notStarted = attempted === 0;
+                    const barColor = score == null || notStarted ? '#334155'
+                      : score >= 70 ? '#10b981'
+                      : score >= 50 ? '#f59e0b'
+                      : '#ef4444';
+                    const badgeText = notStarted ? 'Not Started'
+                      : score != null && score >= 70 ? 'Mastered'
+                      : score != null && score >= 50 ? 'In Progress'
+                      : 'Needs Work';
+                    const badgeCls = notStarted
+                      ? 'bg-slate-800 text-slate-500'
+                      : score != null && score >= 70 ? 'bg-emerald-500/15 text-emerald-400'
+                      : score != null && score >= 50 ? 'bg-amber-500/15 text-amber-400'
+                      : 'bg-rose-500/15 text-rose-400';
+                    return (
+                      <div key={t.topic_id || i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/60 transition-colors group">
+                        <div className="w-6 h-6 rounded-md bg-slate-800 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">{i + 1}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-semibold text-slate-200 truncate">{t.topic_name}</span>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${badgeCls}`}>{badgeText}</span>
+                              <span className="text-[11px] font-black text-white w-8 text-right">{notStarted ? '—' : `${score}%`}</span>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-slate-800">
+                            <div
+                              className="h-1.5 rounded-full transition-all duration-700"
+                              style={{ width: notStarted ? '0%' : `${score}%`, backgroundColor: barColor }}
+                            />
+                          </div>
+                          {!notStarted && (
+                            <div className="text-[9px] text-slate-600 mt-1">{passed}/{attempted} problems passed</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
 
             </motion.div>
@@ -1041,29 +970,21 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Your Score</div>
 
                   <div className={`text-3xl font-bold ${
-
-                    overallScore != null && classAvgScore != null && overallScore >= classAvgScore
-
-                      ? 'text-emerald-400' : 'text-red-400'
-
+                    overallScore != null && overallScore > 0 && classAvgScore != null && overallScore >= classAvgScore
+                      ? 'text-emerald-400'
+                      : overallScore != null && overallScore > 0
+                      ? 'text-red-400'
+                      : 'text-slate-500'
                   }`}>
-
-                    {overallScore ?? '—'}
-
+                    {overallScore != null && overallScore > 0 ? `${Math.round(overallScore)}%` : '—'}
                   </div>
 
                   <div className="mt-2 flex items-center gap-1 text-[10px] font-bold">
-
-                    {overallScore != null && classAvgScore != null ? (
-
+                    {overallScore != null && overallScore > 0 && classAvgScore != null ? (
                       overallScore >= classAvgScore
-
-                        ? <span className="text-emerald-400">+{overallScore - classAvgScore} above avg</span>
-
-                        : <span className="text-red-400">{overallScore - classAvgScore} below avg</span>
-
-                    ) : <span className="text-slate-400">your mastery score</span>}
-
+                        ? <span className="text-emerald-400">+{Math.round(overallScore - classAvgScore)}% above avg</span>
+                        : <span className="text-red-400">{Math.round(overallScore - classAvgScore)}% below avg</span>
+                    ) : <span className="text-slate-500">no submissions yet</span>}
                   </div>
 
                 </div>
@@ -1169,39 +1090,25 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({
               {(() => {
 
                 const usedPercentile = insightPercentile ?? percentile;
-
                 const usedRank      = insightRank ?? rank;
-
                 const usedTotal     = insightTotalStudents || totalStudents;
 
-                if (totalSolved === 0) {
+                // Show "no ranking" only when we have NO rank data at all
+                if (usedRank == null && usedPercentile == null) {
 
                   return (
-
                     <div>
-
                       <div className="flex items-center gap-3 mb-6">
-
                         <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-500">
-
                           <Trophy size={18} />
-
                         </div>
-
                         <h3 className="font-bold text-white uppercase tracking-widest text-xs">Your Position in Class</h3>
-
                       </div>
-
                       <div className="flex flex-col items-center justify-center h-32 text-slate-600 gap-2">
-
                         <Trophy size={28} className="opacity-30" />
-
                         <p className="text-sm">No ranking yet — solve problems to earn your place.</p>
-
                       </div>
-
                     </div>
-
                   );
 
                 }

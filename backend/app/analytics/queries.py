@@ -75,7 +75,17 @@ def get_student_mastery_summary(db: Session, student_id: str, class_id: str | No
         ORDER BY t.display_order
     """)
     rows = db.execute(sql, params).mappings().all()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        row = dict(r)
+        # Cast Decimal → float so JSON serialization produces numbers, not strings
+        row["mastery_score"]      = float(row["mastery_score"]) if row["mastery_score"] is not None else None
+        row["problems_in_topic"]  = int(row["problems_in_topic"] or 0)
+        row["problems_attempted"] = int(row["problems_attempted"] or 0)
+        row["problems_passed"]    = int(row["problems_passed"] or 0)
+        row["total_hints_used"]   = int(row["total_hints_used"] or 0)
+        result.append(row)
+    return result
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. CLASS PERCENTILE  (window function — one query for all students)
@@ -124,12 +134,14 @@ def get_class_percentile_rank(db: Session, student_id: str, class_id: str) -> di
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. WEEKLY PROGRESS  (time series for progress chart)
 # ─────────────────────────────────────────────────────────────────────────────
-def get_weekly_progress(db: Session, student_id: str, days: int = 30) -> list[dict]:
+def get_weekly_progress(db: Session, student_id: str, days: int = 30, class_id: str | None = None) -> list[dict]:
     """
     Returns daily submission stats for the last N days.
-    Suitable for a line chart on the student dashboard.
+    Optionally filtered to a specific class.
+    Suitable for a line chart on the student analytics page.
     """
-    sql = text("""
+    class_filter = "AND s.class_id = :class_id" if class_id else ""
+    sql = text(f"""
         SELECT
             DATE(s.submitted_at AT TIME ZONE 'UTC')  AS day,
             COUNT(*)                                  AS submissions_count,
@@ -138,12 +150,17 @@ def get_weekly_progress(db: Session, student_id: str, days: int = 30) -> list[di
             SUM(s.time_spent_seconds)                  AS time_spent_seconds
         FROM submissions s
         WHERE s.student_id = :student_id
-          AND s.submitted_at >= NOW() - INTERVAL ':days days'
+          {class_filter}
+          AND s.submitted_at >= NOW() - INTERVAL '{days} days'
         GROUP BY DATE(s.submitted_at AT TIME ZONE 'UTC')
         ORDER BY day
-    """.replace(":days days", f"{days} days"))
-    rows = db.execute(sql, {"student_id": student_id}).mappings().all()
+    """)
+    params: dict = {"student_id": student_id}
+    if class_id:
+        params["class_id"] = class_id
+    rows = db.execute(sql, params).mappings().all()
     return [dict(r) for r in rows]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. TOPIC BREAKDOWN  (per topic stats + badges for student UI)

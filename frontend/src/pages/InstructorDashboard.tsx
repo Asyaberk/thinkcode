@@ -172,6 +172,9 @@ interface InstructorDashboardProps {
 
   activeCourseId?: string;
 
+  /** Called when the instructor selects a different class — so App.tsx can sync activeCourseId. */
+  onClassChange?: (classId: string) => void;
+
   /** Amber badge count for pending enrollment requests. */
   pendingEnrollmentsCount?: number;
 
@@ -310,6 +313,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   userRole,
 
   activeCourseId,
+  onClassChange,
   pendingEnrollmentsCount = 0,
 }) => {
 
@@ -319,11 +323,19 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
   const activeClass = instructorClasses.find(c => c.class_id === activeClassId);
 
+  // Sync class selection up to App.tsx so CourseBanner / sidebar stay correct
+  const handleClassChange = (classId: string) => {
+    setActiveClassId(classId);
+    onClassChange?.(classId);
+  };
+
   useEffect(() => {
 
     if (instructorClasses.length > 0 && !activeClassId) {
 
-      setActiveClassId(activeCourseId || instructorClasses[0].class_id);
+      const firstId = activeCourseId || instructorClasses[0].class_id;
+      setActiveClassId(firstId);
+      onClassChange?.(firstId);
 
     }
 

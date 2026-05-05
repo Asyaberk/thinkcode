@@ -1013,6 +1013,8 @@ export default function App() {
 
           courseName={courseName}
 
+          activeCourseId={activeCourseId}
+
         />
 
       )}
@@ -1048,6 +1050,12 @@ export default function App() {
           courseName={courseName}
 
           activeCourseId={activeCourseId}
+
+          onClassChange={(classId) => {
+            setActiveCourseId(classId);
+            localStorage.setItem(STORAGE_KEY, classId);
+          }}
+
           pendingEnrollmentsCount={pendingEnrollmentsCount}
         />
 
