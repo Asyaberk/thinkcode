@@ -32,6 +32,10 @@ from app.analytics.queries import (
 
     get_hint_analytics,
 
+    get_problem_stats,
+
+    get_class_engagement,
+
 )
 
 from app.schemas import (
@@ -515,3 +519,45 @@ def hint_analytics(
 
     return get_hint_analytics(db, class_id)
 
+
+@router.get(
+    "/{class_id}/problem-stats",
+    summary="Per-problem pass rates and difficulty analysis",
+)
+def problem_stats(
+    class_id: str,
+    db: Session = Depends(get_db),
+    instructor: User = Depends(require_instructor),
+):
+    """
+    For every published problem attempted in this class:
+    pass_rate, total_attempts, unique_students, hint usage,
+    and difficulty_gap (how much harder than expected label suggests).
+    """
+    cls = db.get(Class, class_id)
+    if not cls:
+        raise HTTPException(404, "Class not found")
+    if cls.instructor_id != instructor.id and instructor.role != "admin":
+        raise HTTPException(403, "Not your class")
+    return get_problem_stats(db, class_id)
+
+
+@router.get(
+    "/{class_id}/engagement",
+    summary="Class engagement: daily trend + active/passive split",
+)
+def class_engagement(
+    class_id: str,
+    db: Session = Depends(get_db),
+    instructor: User = Depends(require_instructor),
+):
+    """
+    Submission trend for last 30 days, active students (last 7d),
+    passive students (never or long-inactive), top active and most passive lists.
+    """
+    cls = db.get(Class, class_id)
+    if not cls:
+        raise HTTPException(404, "Class not found")
+    if cls.instructor_id != instructor.id and instructor.role != "admin":
+        raise HTTPException(403, "Not your class")
+    return get_class_engagement(db, class_id)

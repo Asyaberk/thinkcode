@@ -437,6 +437,184 @@ def get_hint_analytics(db: Session, class_id: str) -> dict:
     return {"by_level": by_level, "top_struggling_problems": top_problems}
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 8b. PROBLEM STATS  (per-problem pass rates for instructor view)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_problem_stats(db: Session, class_id: str) -> list[dict]:
+    """
+    Per-problem statistics for instructor: pass rate, attempt count,
+    avg attempts to first pass, hint usage, difficulty label vs actual rate.
+    """
+    sql = text("""
+        WITH problem_attempts AS (
+            SELECT
+                p.id                                        AS problem_id,
+                p.title                                     AS problem_title,
+                p.difficulty,
+                p.points,
+                t.id                                        AS topic_id,
+                t.name                                      AS topic_name,
+                COUNT(s.id)                                 AS total_attempts,
+                COUNT(DISTINCT s.student_id)                AS unique_students,
+                COUNT(CASE WHEN s.is_correct THEN 1 END)    AS passes,
+                COUNT(CASE WHEN NOT s.is_correct THEN 1 END) AS failures,
+                ROUND(
+                    100.0 * COUNT(CASE WHEN s.is_correct THEN 1 END) /
+                    NULLIF(COUNT(s.id), 0)
+                , 1)                                        AS pass_rate
+            FROM problems p
+            JOIN topics t ON t.id = p.topic_id
+            JOIN submissions s ON s.problem_id = p.id
+                AND s.class_id = :class_id
+                AND s.is_correct IS NOT NULL
+            WHERE p.is_published = true
+            GROUP BY p.id, p.title, p.difficulty, p.points, t.id, t.name
+        ),
+        hint_counts AS (
+            SELECT
+                problem_id,
+                COUNT(*)                    AS total_hints,
+                COUNT(DISTINCT student_id)  AS students_hinted
+            FROM hint_requests
+            GROUP BY problem_id
+        )
+        SELECT
+            pa.*,
+            COALESCE(hc.total_hints, 0)         AS total_hints,
+            COALESCE(hc.students_hinted, 0)     AS students_hinted,
+            ROUND(
+                COALESCE(hc.total_hints, 0)::numeric /
+                NULLIF(pa.unique_students, 0)
+            , 2)                                AS avg_hints_per_student,
+            -- difficulty_gap: expected vs actual (>0 = harder than expected)
+            CASE pa.difficulty
+                WHEN 'easy'   THEN ROUND((70 - COALESCE(pa.pass_rate, 70))::numeric, 1)
+                WHEN 'medium' THEN ROUND((50 - COALESCE(pa.pass_rate, 50))::numeric, 1)
+                WHEN 'hard'   THEN ROUND((30 - COALESCE(pa.pass_rate, 30))::numeric, 1)
+                ELSE 0
+            END                                 AS difficulty_gap
+        FROM problem_attempts pa
+        LEFT JOIN hint_counts hc ON hc.problem_id = pa.problem_id
+        ORDER BY pa.pass_rate ASC, pa.unique_students DESC
+    """)
+    rows = db.execute(sql, {"class_id": class_id}).mappings().all()
+    result = []
+    for r in rows:
+        row = dict(r)
+        for key in ["pass_rate", "avg_hints_per_student", "difficulty_gap"]:
+            if row.get(key) is not None:
+                row[key] = float(row[key])
+        for key in ["total_attempts", "unique_students", "passes", "failures",
+                    "total_hints", "students_hinted"]:
+            row[key] = int(row.get(key) or 0)
+        result.append(row)
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8c. CLASS ENGAGEMENT  (daily trend, active/passive student split)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_class_engagement(db: Session, class_id: str) -> dict:
+    """
+    Engagement analytics for instructor dashboard:
+    - daily_trend: submission counts per day for last 30 days
+    - active_students: submitted at least once in last 7 days
+    - passive_students: enrolled but 0 submissions ever
+    - total_enrolled, total_with_any_activity
+    """
+    # Daily submission trend — last 30 days
+    sql_trend = text("""
+        SELECT
+            DATE(submitted_at)      AS day,
+            COUNT(*)                AS total_submissions,
+            COUNT(DISTINCT student_id) AS active_students,
+            COUNT(CASE WHEN is_correct THEN 1 END) AS correct_submissions
+        FROM submissions
+        WHERE class_id = :class_id
+          AND submitted_at >= NOW() - INTERVAL '30 days'
+        GROUP BY DATE(submitted_at)
+        ORDER BY day ASC
+    """)
+    trend_rows = db.execute(sql_trend, {"class_id": class_id}).mappings().all()
+    daily_trend = [
+        {
+            "day": str(r["day"]),
+            "total_submissions": int(r["total_submissions"]),
+            "active_students":   int(r["active_students"]),
+            "correct_submissions": int(r["correct_submissions"]),
+        }
+        for r in trend_rows
+    ]
+
+    # Active last 7 days vs passive
+    sql_activity = text("""
+        SELECT
+            COUNT(DISTINCT e.student_id)                            AS total_enrolled,
+            COUNT(DISTINCT s7.student_id)                           AS active_7d,
+            COUNT(DISTINCT s_any.student_id)                        AS ever_active,
+            COUNT(DISTINCT e.student_id)
+                - COUNT(DISTINCT s_any.student_id)                  AS never_active
+        FROM enrollments e
+        LEFT JOIN (
+            SELECT DISTINCT student_id FROM submissions
+            WHERE class_id = :class_id
+              AND submitted_at >= NOW() - INTERVAL '7 days'
+        ) s7  ON s7.student_id = e.student_id
+        LEFT JOIN (
+            SELECT DISTINCT student_id FROM submissions
+            WHERE class_id = :class_id
+        ) s_any ON s_any.student_id = e.student_id
+        WHERE e.class_id = :class_id AND e.status = 'active'
+    """)
+    act = db.execute(sql_activity, {"class_id": class_id}).mappings().first()
+
+    # Most active students (last 7 days)
+    sql_top_active = text("""
+        SELECT u.first_name, u.last_name, COUNT(s.id) AS submissions_7d
+        FROM submissions s
+        JOIN users u ON u.id = s.student_id
+        WHERE s.class_id = :class_id
+          AND s.submitted_at >= NOW() - INTERVAL '7 days'
+        GROUP BY u.id, u.first_name, u.last_name
+        ORDER BY submissions_7d DESC
+        LIMIT 5
+    """)
+    top_active = [dict(r) for r in db.execute(sql_top_active, {"class_id": class_id}).mappings().all()]
+
+    # Most passive students (enrolled, 0 submissions last 14 days)
+    sql_passive = text("""
+        SELECT u.first_name, u.last_name,
+               COALESCE(s_any.total, 0) AS total_submissions_ever
+        FROM enrollments e
+        JOIN users u ON u.id = e.student_id
+        LEFT JOIN (
+            SELECT student_id, COUNT(*) AS total
+            FROM submissions WHERE class_id = :class_id
+            GROUP BY student_id
+        ) s_any ON s_any.student_id = e.student_id
+        WHERE e.class_id = :class_id AND e.status = 'active'
+          AND NOT EXISTS (
+              SELECT 1 FROM submissions s2
+              WHERE s2.student_id = e.student_id
+                AND s2.class_id = :class_id
+                AND s2.submitted_at >= NOW() - INTERVAL '14 days'
+          )
+        ORDER BY s_any.total ASC NULLS FIRST
+        LIMIT 5
+    """)
+    most_passive = [dict(r) for r in db.execute(sql_passive, {"class_id": class_id}).mappings().all()]
+
+    return {
+        "daily_trend":    daily_trend,
+        "total_enrolled": int(act["total_enrolled"] or 0),
+        "active_7d":      int(act["active_7d"]      or 0),
+        "ever_active":    int(act["ever_active"]    or 0),
+        "never_active":   int(act["never_active"]   or 0),
+        "top_active_students":   top_active,
+        "most_passive_students": most_passive,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 8. MASTERY UPSERT  (replaces the broken Python function in submissions.py)
 # ─────────────────────────────────────────────────────────────────────────────
 def recompute_mastery(db: Session, student_id: str, class_id: str, topic_id: str) -> None:

@@ -1,5 +1,5 @@
-import React from 'react';
-import { CheckCircle2, Circle, ChevronRight, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch, Lock, Users } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, Circle, ChevronRight, ChevronDown, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch, Lock, Users, BookOpen, AlertTriangle, Lightbulb, Target, TrendingUp, Activity } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Section, UserRole } from '../types';
 import { cn } from '../lib/utils';
@@ -15,17 +15,18 @@ interface SidebarProps {
   onCourseBuilderClick?: () => void;
   onFlowDesignerClick?: () => void;
   onEnrollmentManagementClick?: () => void;
-  pendingEnrollmentsCount?: number;  // amber badge on Enrollments nav
+  pendingEnrollmentsCount?: number;
   onSwitchCourse?: () => void;
   onLogout?: () => void;
   userRole?: UserRole;
   courseName?: string;
-  /** Completed lesson percentage 0-100. */
   progressPercent?: number;
-  /** Section IDs locked by the active flow — locked sections show a lock icon. */
   lockedSectionIds?: Set<string>;
-  /** Active flow pattern — used for lock tooltip text. */
   flowPattern?: string;
+  /** Instructor: currently active analytics sub-view */
+  activeAnalyticsView?: string;
+  /** Instructor: callback when a sub-view is selected */
+  onAnalyticsViewChange?: (view: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,8 +48,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   progressPercent = 0,
   lockedSectionIds = new Set(),
   flowPattern,
+  activeAnalyticsView = 'overview',
+  onAnalyticsViewChange,
 }) => {
   const isInstructor = userRole === 'Instructor';
+  const [analyticsOpen, setAnalyticsOpen] = useState(
+    ['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)
+  );
 
   // Compute from sections if progressPercent not passed
   const computed = sections.length > 0
@@ -115,52 +121,104 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </>
         ) : (
           <>
+            {/* ── Class Overview ─────────────────────────── */}
             <button
               onClick={onInstructorDashboardClick}
               className={cn(
-                "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
-                activeSectionId === "instructor-dashboard"
-                  ? "text-white bg-slate-800/30"
+                "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                activeSectionId === 'instructor-dashboard' && activeAnalyticsView === 'overview'
+                  ? "text-white bg-emerald-500/10 border border-emerald-500/20"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/30"
               )}
             >
-              <LayoutDashboard size={18} className="group-hover:text-emerald-500 transition-colors" />
-              <span>Dashboard</span>
+              <LayoutDashboard size={16} className="shrink-0 group-hover:text-emerald-400 transition-colors" />
+              <span>Class Overview</span>
             </button>
+
+            {/* ── Class Analytics accordion ───────────────── */}
+            <div className="space-y-0.5">
+              <button
+                onClick={() => setAnalyticsOpen(o => !o)}
+                className={cn(
+                  "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                  ['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)
+                    ? "text-white bg-slate-800/40"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800/30"
+                )}
+              >
+                <BarChart3 size={16} className="shrink-0 group-hover:text-emerald-400 transition-colors" />
+                <span className="flex-1 text-left">Class Analytics</span>
+                {analyticsOpen
+                  ? <ChevronDown size={14} className="text-slate-500" />
+                  : <ChevronRight size={14} className="text-slate-500" />}
+              </button>
+
+              {analyticsOpen && (
+                <div className="ml-4 pl-3 border-l border-slate-800 space-y-0.5 py-1">
+                  {([
+                    { id: 'topics',   icon: BookOpen,      label: 'Topic Analysis' },
+                    { id: 'problems', icon: Target,        label: 'Problem Insights' },
+                    { id: 'students', icon: Users,         label: 'Student Performance' },
+                    { id: 'hints',    icon: Lightbulb,     label: 'Hint Analytics' },
+                    { id: 'gaps',     icon: AlertTriangle, label: 'Knowledge Gaps' },
+                  ] as const).map(({ id, icon: Icon, label }) => (
+                    <button
+                      key={id}
+                      onClick={() => { onAnalyticsViewChange?.(id); }}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all group",
+                        activeAnalyticsView === id
+                          ? "text-emerald-400 bg-emerald-500/10"
+                          : "text-slate-500 hover:text-slate-200 hover:bg-slate-800/30"
+                      )}
+                    >
+                      <Icon size={14} className="shrink-0" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Course Builder ──────────────────────────── */}
             <button
               onClick={onCourseBuilderClick}
               className={cn(
-                "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
-                activeSectionId === "course-builder"
-                  ? "text-white bg-slate-800/30"
+                "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                activeSectionId === 'course-builder'
+                  ? "text-white bg-slate-800/40"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/30"
               )}
             >
-              <Layers size={18} className="group-hover:text-emerald-500 transition-colors" />
+              <Layers size={16} className="shrink-0 group-hover:text-emerald-400 transition-colors" />
               <span>Course Builder</span>
             </button>
+
+            {/* ── Flow Designer ───────────────────────────── */}
             <button
               onClick={onFlowDesignerClick}
               className={cn(
-                "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
-                activeSectionId === "flow-designer"
-                  ? "text-white bg-slate-800/30"
+                "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                activeSectionId === 'flow-designer'
+                  ? "text-white bg-slate-800/40"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/30"
               )}
             >
-              <GitBranch size={18} className="group-hover:text-emerald-500 transition-colors" />
+              <GitBranch size={16} className="shrink-0 group-hover:text-emerald-400 transition-colors" />
               <span>Flow Designer</span>
             </button>
+
+            {/* ── Enrollments ────────────────────────────── */}
             <button
               onClick={onEnrollmentManagementClick}
               className={cn(
-                "w-full flex items-center gap-3.5 p-3.5 rounded-xl text-sm font-medium transition-all group",
-                activeSectionId === "enrollment-management"
-                  ? "text-white bg-slate-800/30"
+                "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
+                activeSectionId === 'enrollment-management'
+                  ? "text-white bg-slate-800/40"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/30"
               )}
             >
-              <Users size={18} className="group-hover:text-emerald-500 transition-colors" />
+              <Users size={16} className="shrink-0 group-hover:text-emerald-400 transition-colors" />
               <span>Enrollments</span>
               {pendingEnrollmentsCount > 0 && (
                 <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 text-slate-950 rounded-full text-[10px] font-black flex items-center justify-center">

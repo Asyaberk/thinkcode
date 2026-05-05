@@ -1,9 +1,3 @@
-/**
-
- *
-
- */
-
 import React, { useState, useEffect } from 'react';
 
 import { Sidebar } from '../components/Sidebar';
@@ -11,6 +5,8 @@ import { Sidebar } from '../components/Sidebar';
 import { cn } from '../lib/utils';
 
 import { Section, UserRole } from '../types';
+
+import { OverviewView, TopicAnalysisView, ProblemInsightsView, StudentPerformanceView, HintAnalyticsView, KnowledgeGapsView } from './InstructorAnalyticsViews';
 
 import {
 
@@ -361,7 +357,19 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
   // ── State ────────────────────────────────────────────────────────────────
 
+  const [activeView, setActiveView] = useState<'overview'|'topics'|'problems'|'students'|'hints'|'gaps'>('overview');
+
   const [data, setData] = useState<InstructorData>(LOADING_DATA);
+
+  const [topicHeatmap, setTopicHeatmap] = useState<any[]>([]);
+
+  const [problemStats, setProblemStats] = useState<any[]>([]);
+
+  const [engagementData, setEngagementData] = useState<any>(null);
+
+  const [hintData, setHintData] = useState<any>(null);
+
+  const [gapsData, setGapsData] = useState<any[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -376,6 +384,12 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
+
+  const [problemFilter, setProblemFilter] = useState<'all'|'hard'|'easy'>('all');
+
+  const [problemSort, setProblemSort] = useState<'pass_rate'|'attempts'>('pass_rate');
+
+  const [studentSearch, setStudentSearch] = useState('');
 
   const getLetterGrade = (score: number) => {
 
@@ -393,9 +407,23 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
         setIsLoading(true);
 
-        const dashboard = await api.get<any>(`/instructor/${activeClassId}/dashboard`);
+        const [dashRes, studRes, heatRes, probRes, engRes, hintRes, gapRes] = await Promise.allSettled([
+          api.get<any>(`/instructor/${activeClassId}/dashboard`),
+          api.get<any[]>(`/instructor/${activeClassId}/students`),
+          api.get<any[]>(`/instructor/${activeClassId}/topic-heatmap`),
+          api.get<any[]>(`/instructor/${activeClassId}/problem-stats`),
+          api.get<any>(`/instructor/${activeClassId}/engagement`),
+          api.get<any>(`/instructor/${activeClassId}/hints`),
+          api.get<any[]>(`/instructor/${activeClassId}/knowledge-gaps`),
+        ]);
 
-        const students = await api.get<any[]>(`/instructor/${activeClassId}/students`);
+        const dashboard = dashRes.status === 'fulfilled' ? dashRes.value : {} as any;
+        const students  = studRes.status === 'fulfilled' ? studRes.value : [];
+        if (heatRes.status === 'fulfilled') setTopicHeatmap(heatRes.value);
+        if (probRes.status === 'fulfilled') setProblemStats(probRes.value);
+        if (engRes.status  === 'fulfilled') setEngagementData(engRes.value);
+        if (hintRes.status === 'fulfilled') setHintData(hintRes.value);
+        if (gapRes.status  === 'fulfilled') setGapsData(gapRes.value);
 
         const allScores = students.map((s: any) => parseFloat(s.avg_mastery) || 0);
 
@@ -663,8 +691,6 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
         onAnalyticsClick={onAnalyticsClick}
 
-        onInstructorDashboardClick={onInstructorDashboardClick}
-
         onCourseBuilderClick={onCourseBuilderClick}
 
         onFlowDesignerClick={onFlowDesignerClick}
@@ -679,889 +705,49 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
         courseName={courseName}
 
+        activeAnalyticsView={activeView}
+
+        onAnalyticsViewChange={(v) => setActiveView(v as any)}
+
+        onInstructorDashboardClick={() => { setActiveView('overview'); onInstructorDashboardClick?.(); }}
+
       />
 
       <main className="flex-1 overflow-y-auto ml-72">
+        <div className="p-8 max-w-6xl mx-auto space-y-6">
 
-        <div className="p-8 max-w-7xl mx-auto space-y-8">
-
-          {/* — Header — */}
-
-          <div className="flex justify-between items-center gap-4 flex-wrap">
-
+          {/* ── Page Header ── */}
+          <div className="flex items-center justify-between">
             <div>
-
-              <h1 className="text-3xl font-bold text-white mb-1">Instructor Dashboard</h1>
-
-              {courseName && (
-
-                <p className="text-slate-400 text-sm font-medium">{courseName}</p>
-
-              )}
-
+              <h1 className="text-2xl font-black text-white">
+                {activeView === 'overview'  ? 'Class Overview'
+                : activeView === 'topics'  ? 'Topic Analysis'
+                : activeView === 'problems'? 'Problem Insights'
+                : activeView === 'students'? 'Student Performance'
+                : activeView === 'hints'   ? 'Hint Analytics'
+                : 'Knowledge Gaps'}
+              </h1>
+              {courseName && <p className="text-slate-500 text-sm mt-0.5">{courseName}</p>}
             </div>
-
-            <div className="flex gap-3 items-center">
-
-              <div className="px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center gap-2">
-
-                <Users size={18} className="text-emerald-500" />
-
-                <span className="text-sm font-medium">
-
-                  {isLoading ? '...' : `${classOverview.totalStudents} Students`}
-
-                </span>
-
-              </div>
-
-              <button
-
-                onClick={handleGenerateReport}
-
-                disabled={isGeneratingReport}
-
-                className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm font-medium flex items-center gap-2 hover:bg-emerald-500/20 transition-all disabled:opacity-50"
-
-              >
-
-                {isGeneratingReport
-
-                  ? <><Loader2 size={16} className="animate-spin" />Generating...</>
-
-                  : <><MessageSquare size={16} />Generate Report</>
-
-                }
-
-              </button>
-
-            </div>
-
+            {isLoading && <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />}
           </div>
 
-          {/* AI report — show when available */}
-
-          {aiReport && (
-
-            <div className="p-6 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl">
-
-              <div className="flex items-center gap-2 mb-3">
-
-                <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">AI Analysis</div>
-
-              </div>
-
-              <p className="text-slate-300 text-sm leading-relaxed italic">"{aiReport}"</p>
-
-            </div>
-
+          {/* ── View Router ── */}
+          {activeView === 'overview' && (
+            <OverviewView data={data} topicHeatmap={topicHeatmap} engagementData={engagementData} gapsData={gapsData}
+              onAnalyzeGaps={handleGenerateReport} isGenerating={isGeneratingReport} aiReport={aiReport} activeClassId={activeClassId} />
+          )}
+          {activeView === 'topics' && <TopicAnalysisView topicHeatmap={topicHeatmap} />}
+          {activeView === 'problems' && <ProblemInsightsView problemStats={problemStats} />}
+          {activeView === 'students' && <StudentPerformanceView data={data} engagementData={engagementData} />}
+          {activeView === 'hints' && <HintAnalyticsView hintData={hintData} />}
+          {activeView === 'gaps' && (
+            <KnowledgeGapsView gapsData={gapsData} onAnalyzeGaps={handleGenerateReport}
+              isGenerating={isGeneratingReport} aiReport={aiReport} />
           )}
 
-          {/* ── Overview Stats ────────────────────────────────────────── */}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-            {/* Ortalama Puan */}
-
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-3xl">
-
-              <div className="flex items-center gap-3 mb-4">
-
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
-
-                  <TrendingUp size={20} />
-
-                </div>
-
-                <span className="text-slate-400 text-sm font-medium">Average Score</span>
-
-              </div>
-
-              <div className="text-4xl font-bold text-white">
-
-                {isLoading ? '—' : `${classOverview.averageScore.toFixed(1)}%`}
-
-              </div>
-
-              <div className="text-xs text-emerald-500 font-bold mt-2">
-
-                Median: {isLoading ? '—' : `${classOverview.medianScore.toFixed(1)}%`}
-
-              </div>
-
-            </div>
-
-            {/* Total students */}
-
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-3xl">
-
-              <div className="flex items-center gap-3 mb-4">
-
-                <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-
-                  <Users size={20} />
-
-                </div>
-
-                <span className="text-slate-400 text-sm font-medium">Total Students</span>
-
-              </div>
-
-              <div className="text-4xl font-bold text-white">
-
-                {isLoading ? '—' : classOverview.totalStudents}
-
-              </div>
-
-              <div className="text-xs text-blue-500 font-bold mt-2">
-
-                Actively enrolled in class
-
-              </div>
-
-            </div>
-
-            {/* Knowledge gap count */}
-
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-3xl">
-
-              <div className="flex items-center gap-3 mb-4">
-
-                <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center text-amber-500">
-
-                  <Target size={20} />
-
-                </div>
-
-                <span className="text-slate-400 text-sm font-medium">Knowledge Gaps</span>
-
-              </div>
-
-              <div className="text-4xl font-bold text-white">
-
-                {isLoading ? '—' : knowledgeGaps.length}
-
-              </div>
-
-              <div className="text-xs text-amber-500 font-bold mt-2">
-
-                Topics needing attention
-
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* ── Distribution Chart + Knowledge Gaps ─────────────────── */}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-            {/* Score Distribution */}
-
-            <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl">
-
-              <div className="flex items-center gap-3 mb-6">
-
-                <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-
-                  <BarChart size={20} />
-
-                </div>
-
-                <div>
-
-                  <h3 className="text-lg font-bold text-white">Grade Distribution</h3>
-
-                  <p className="text-[10px] text-slate-500 font-medium uppercase tracking-widest">Passing grade: D- (≥35%)</p>
-
-                </div>
-
-              </div>
-
-              <div className="h-52">
-
-                <ResponsiveContainer width="100%" height="100%">
-
-                  <ComposedChart data={classOverview.distribution} barCategoryGap="20%">
-
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-
-                    <XAxis
-
-                      dataKey="range"
-
-                      tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 700 }}
-
-                      interval={0}
-
-                    />
-
-                    <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
-
-                    <Tooltip
-
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }}
-
-                      labelStyle={{ color: '#f1f5f9', fontWeight: 700 }}
-
-                      itemStyle={{ color: '#94a3b8' }}
-
-                      formatter={(value: number, name: string) =>
-
-                        name === 'bell' ? null : [`${value} students`, 'Count']
-
-                      }
-
-                    />
-
-                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-
-                      {classOverview.distribution.map((entry, index) => (
-
-                        <Cell key={`cell-${index}`} fill={(entry as any).color || '#3b82f6'} fillOpacity={0.85} />
-
-                      ))}
-
-                    </Bar>
-
-                    <Line
-
-                      type="monotone"
-
-                      dataKey="bell"
-
-                      stroke="#f8fafc"
-
-                      strokeWidth={2}
-
-                      dot={false}
-
-                      strokeDasharray="4 2"
-
-                    />
-
-                  </ComposedChart>
-
-                </ResponsiveContainer>
-
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-
-                <span>μ = <span className="text-slate-300 font-bold">{classOverview.averageScore.toFixed(1)}%</span></span>
-
-                <span>σ = <span className="text-slate-300 font-bold">{classOverview.stdDev.toFixed(1)}%</span></span>
-
-                <span>Median = <span className="text-slate-300 font-bold">{classOverview.medianScore.toFixed(1)}%</span></span>
-
-                <span className="text-orange-400 font-bold">F &lt; 35%</span>
-
-              </div>
-
-            </div>
-
-            {/* Knowledge Gaps */}
-
-            <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl">
-
-              <div className="flex items-center gap-3 mb-8">
-
-                <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center text-amber-500">
-
-                  <AlertCircle size={20} />
-
-                </div>
-
-                <h3 className="text-lg font-bold text-white">Knowledge Gaps</h3>
-
-              </div>
-
-              <div className="space-y-6">
-
-                {knowledgeGaps.map((gap, i) => (
-
-                  <div key={i} className="space-y-2">
-
-                    <div className="flex justify-between text-sm">
-
-                      <span className="font-medium text-slate-300">{gap.topic}</span>
-
-                      <span className="font-bold text-amber-500">{gap.incorrectRate.toFixed(1)}% incorrect</span>
-
-                    </div>
-
-                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-
-                      <div
-
-                        className="bg-amber-500 h-full rounded-full transition-all duration-1000"
-
-                        style={{ width: `${gap.incorrectRate}%` }}
-
-                      />
-
-                    </div>
-
-                  </div>
-
-                ))}
-
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* ── Difficult Questions + AI Grading Summary ─────────────── */}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-            {/* Most Difficult Questions */}
-
-            <div className="lg:col-span-1 bg-slate-900/50 border border-slate-800 p-8 rounded-3xl">
-
-              <h3 className="text-lg font-bold text-white mb-6">Most Difficult Questions</h3>
-
-              <div className="space-y-3">
-
-                {difficultQuestions.map((q, i) => (
-
-                  <div
-
-                    key={i}
-
-                    onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-
-                    className="p-4 bg-slate-800/30 border border-slate-700/50 rounded-2xl cursor-pointer group hover:border-emerald-500/30 transition-all"
-
-                  >
-
-                    <div className="flex items-center justify-between">
-
-                      <div className="flex flex-col">
-
-                        <span className="text-sm font-bold text-slate-200">{q.title}</span>
-
-                        <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">
-
-                          Fail Rate: {q.failRate.toFixed(1)}%
-
-                        </span>
-
-                      </div>
-
-                      <ChevronRight
-
-                        size={16}
-
-                        className={`text-slate-600 group-hover:text-emerald-500 transition-all ${expandedIdx === i ? 'rotate-90 text-emerald-500' : ''}`}
-
-                      />
-
-                    </div>
-
-                    {expandedIdx === i && (
-
-                      <div className="mt-3 pt-3 border-t border-slate-700/50 grid grid-cols-3 gap-2 text-center">
-
-                        <div>
-
-                          <div className="text-xs font-bold text-white">{q.uniqueStudents}</div>
-
-                          <div className="text-[10px] text-slate-500">students</div>
-
-                        </div>
-
-                        <div>
-
-                          <div className="text-xs font-bold text-white">{q.totalAttempts}</div>
-
-                          <div className="text-[10px] text-slate-500">attempts</div>
-
-                        </div>
-
-                        <div>
-
-                          <div className="text-xs font-bold text-white">{q.avgHints.toFixed(1)}</div>
-
-                          <div className="text-[10px] text-slate-500">avg hints</div>
-
-                        </div>
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                ))}
-
-              </div>
-
-            </div>
-
-            {/* AI Grading Feedback Summary */}
-
-            <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 p-8 rounded-3xl flex flex-col">
-
-              <div className="flex items-center gap-3 mb-6">
-
-                <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-500">
-
-                  <Target size={20} />
-
-                </div>
-
-                <h3 className="text-lg font-bold text-white">AI Grading Feedback Summary</h3>
-
-              </div>
-
-              <div className="flex-1 bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 relative">
-
-                <div className="absolute top-4 right-4 text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded uppercase tracking-widest">
-
-                  AI Generated
-
-                </div>
-
-                <p className="text-slate-300 leading-relaxed italic">
-
-                  "{openResponseStats.aiFeedbackSummary}"
-
-                </p>
-
-                <div className="mt-6 pt-5 border-t border-slate-700/50">
-
-                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-3">⚠ At-Risk Students</p>
-
-                  <div className="space-y-2">
-
-                    {[...data.students]
-
-                      .sort((a, b) => a.averageScore - b.averageScore)
-
-                      .slice(0, 3)
-
-                      .map((s, i) => (
-
-                        <div key={i} className="flex items-center justify-between">
-
-                          <div className="flex items-center gap-2">
-
-                            <div className="w-7 h-7 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-[10px] font-black text-red-400">
-
-                              {s.name.charAt(0)}
-
-                            </div>
-
-                            <span className="text-xs font-medium text-slate-300">{s.name}</span>
-
-                          </div>
-
-                          <div className="flex items-center gap-3">
-
-                            <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded">{s.weakTopic}</span>
-
-                            <span className="text-xs font-bold text-red-400">{s.averageScore.toFixed(1)}%</span>
-
-                          </div>
-
-                        </div>
-
-                      ))}
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* ── Student Performance List ───────────────────────────────── */}
-
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl overflow-hidden">
-
-            <div className="p-8 border-b border-slate-800 flex justify-between items-center">
-
-              <h3 className="text-lg font-bold text-white">Student Performance List</h3>
-
-              <div className="relative">
-
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-
-                <input
-
-                  type="text"
-
-                  placeholder="Search students..."
-
-                  value={searchQuery}
-
-                  onChange={e => setSearchQuery(e.target.value)}
-
-                  className="bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-
-                />
-
-              </div>
-
-            </div>
-
-            <div className="overflow-x-auto">
-
-              <table className="w-full text-left">
-
-                <thead>
-
-                  <tr className="bg-slate-800/30 text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em]">
-
-                    <th className="px-8 py-4">Name</th>
-
-                    <th className="px-8 py-4">Avg Score</th>
-
-                    <th className="px-8 py-4">Percentile</th>
-
-                    <th className="px-8 py-4">Attempted</th>
-
-                    <th className="px-8 py-4">Weak Topic</th>
-
-                    <th className="px-8 py-4">Action</th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody className="divide-y divide-slate-800">
-
-                  {isLoading ? (
-
-                    <tr>
-
-                      <td colSpan={6} className="px-8 py-10 text-center text-slate-500">
-
-                        <Loader2 size={24} className="animate-spin mx-auto mb-2" />
-
-                        Loading students...
-
-                      </td>
-
-                    </tr>
-
-                  ) : filteredStudents.length === 0 ? (
-
-                    <tr>
-
-                      <td colSpan={6} className="px-8 py-10 text-center text-slate-500">
-
-                        No students found
-
-                      </td>
-
-                    </tr>
-
-                  ) : (
-
-                    filteredStudents.map((student, i) => (
-
-                      <tr key={i} className="hover:bg-slate-800/20 transition-colors">
-
-                        <td className="px-8 py-5">
-
-                          <span className="text-sm font-bold text-white">{student.name}</span>
-
-                        </td>
-
-                        <td className="px-8 py-5">
-
-                          <span className={cn(
-
-                            "text-sm font-bold",
-
-                            student.averageScore >= 80 ? "text-emerald-500" :
-
-                            student.averageScore >= 60 ? "text-blue-500" : "text-amber-500"
-
-                          )}>
-
-                            {student.averageScore.toFixed(1)}%
-
-                          </span>
-
-                        </td>
-
-                        <td className="px-8 py-5">
-
-                          <span className="text-xs font-medium text-slate-400">Top {100 - student.percentile}%</span>
-
-                        </td>
-
-                        <td className="px-8 py-5">
-
-                          <span className="text-xs font-medium text-slate-400">{student.questionsAttempted} Questions</span>
-
-                        </td>
-
-                        <td className="px-8 py-5">
-
-                          <span className="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-[10px] font-bold text-slate-300">
-
-                            {student.weakTopic}
-
-                          </span>
-
-                        </td>
-
-                        <td className="px-8 py-5">
-
-                          <button
-
-                            onClick={() => setSelectedStudent(student)}
-
-                            className="text-xs font-bold text-emerald-500 hover:text-emerald-400 transition-colors flex items-center gap-1"
-
-                          >
-
-                            View Details <ArrowUpRight size={12} />
-
-                          </button>
-
-                        </td>
-
-                      </tr>
-
-                    ))
-
-                  )}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-          </div>
-
         </div>
-
       </main>
-
-      {/* ── Student Detail Drawer ─────────────────────────────────────── */}
-
-      {/* Backdrop */}
-
-      <div
-
-        onClick={() => setSelectedStudent(null)}
-
-        className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300 ${
-
-          selectedStudent ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-
-        }`}
-
-      />
-
-      {/* Drawer */}
-
-      <div className={`fixed top-0 right-0 h-full w-96 bg-slate-950 border-l border-slate-800 z-50 flex flex-col transition-transform duration-300 ease-out ${
-
-        selectedStudent ? 'translate-x-0' : 'translate-x-full'
-
-      }`}>
-
-        {selectedStudent && (() => {
-
-          const { grade, color } = getLetterGrade(selectedStudent.averageScore);
-
-          const classAvg = data.classOverview.averageScore;
-
-          const diff = selectedStudent.averageScore - classAvg;
-
-          const barWidth = Math.min(selectedStudent.averageScore, 100);
-
-          return (
-
-            <>
-
-              {/* Header */}
-
-              <div className="p-6 border-b border-slate-800 flex items-start justify-between">
-
-                <div>
-
-                  <div className="flex items-center gap-3 mb-1">
-
-                    <div
-
-                      className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-black text-white"
-
-                      style={{ backgroundColor: color + '33', border: `2px solid ${color}` }}
-
-                    >
-
-                      {selectedStudent.name.charAt(0)}
-
-                    </div>
-
-                    <div>
-
-                      <h2 className="text-base font-black text-white">{selectedStudent.name}</h2>
-
-                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">Top {100 - selectedStudent.percentile}% · {selectedStudent.questionsAttempted} Questions</p>
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <button
-
-                  onClick={() => setSelectedStudent(null)}
-
-                  className="text-slate-500 hover:text-white transition-colors mt-1"
-
-                >
-
-                  ✕
-
-                </button>
-
-              </div>
-
-              {/* Body */}
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-
-                {/* Grade Badge */}
-
-                <div className="flex items-center justify-between p-4 rounded-2xl border" style={{ borderColor: color + '50', background: color + '10' }}>
-
-                  <div>
-
-                    <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Letter Grade</p>
-
-                    <p className="text-4xl font-black" style={{ color }}>{grade}</p>
-
-                  </div>
-
-                  <div className="text-right">
-
-                    <p className="text-2xl font-black text-white">{selectedStudent.averageScore.toFixed(1)}%</p>
-
-                    <p className={`text-xs font-bold mt-1 ${diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-
-                      {diff >= 0 ? '▲' : '▼'} {Math.abs(diff).toFixed(1)}% vs class avg
-
-                    </p>
-
-                  </div>
-
-                </div>
-
-                {/* Mastery Bar */}
-
-                <div>
-
-                  <div className="flex justify-between text-xs text-slate-500 mb-2">
-
-                    <span>Mastery Score</span>
-
-                    <span className="text-white font-bold">{selectedStudent.averageScore.toFixed(1)}%</span>
-
-                  </div>
-
-                  <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-
-                    <div
-
-                      className="h-full rounded-full transition-all duration-700"
-
-                      style={{ width: `${barWidth}%`, backgroundColor: color }}
-
-                    />
-
-                  </div>
-
-                  <div className="flex justify-between text-[10px] text-slate-600 mt-1">
-
-                    <span>F (0%)</span>
-
-                    <span className="text-slate-500">Class avg: {classAvg.toFixed(1)}%</span>
-
-                    <span>A (100%)</span>
-
-                  </div>
-
-                </div>
-
-                {/* Grade Scale */}
-
-                <div>
-
-                  <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-3">Grade Scale</p>
-
-                  <div className="space-y-1.5">
-
-                    {GRADE_BINS.map(b => {
-
-                      const isHere = selectedStudent.averageScore >= b.min && selectedStudent.averageScore < b.max;
-
-                      return (
-
-                        <div key={b.range} className={`flex items-center justify-between px-3 py-1.5 rounded-lg transition-all ${
-
-                          isHere ? 'border' : ''
-
-                        }`} style={isHere ? { borderColor: b.color + '60', background: b.color + '15' } : {}}>
-
-                          <span className="text-xs font-bold" style={{ color: isHere ? b.color : '#475569' }}>
-
-                            {b.range}
-
-                          </span>
-
-                          <span className="text-[10px] text-slate-600">
-
-                            {b.range === 'A' ? '≥85%' : `${b.min}–${b.max === 101 ? 100 : b.max}%`}
-
-                          </span>
-
-                          {isHere && <span className="text-[10px] font-black" style={{ color: b.color }}>← YOU</span>}
-
-                        </div>
-
-                      );
-
-                    })}
-
-                  </div>
-
-                </div>
-
-                {/* Weak Topic */}
-
-                <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl">
-
-                  <p className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">⚠ Weak Topic</p>
-
-                  <p className="text-sm font-bold text-white">{selectedStudent.weakTopic}</p>
-
-                </div>
-
-              </div>
-
-            </>
-
-          );
-
-        })()}
-
-      </div>
 
     </div>
 
