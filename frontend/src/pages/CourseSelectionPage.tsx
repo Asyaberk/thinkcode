@@ -36,6 +36,9 @@ interface CourseSelectionPageProps {
 
   onDiscover?: () => void;
 
+  /** Maps courseId → mastery % (0-100) for all enrolled courses */
+  masteryByClass?: Record<string, number>;
+
 }
 
 export const CourseSelectionPage: React.FC<CourseSelectionPageProps> = ({
@@ -62,7 +65,9 @@ export const CourseSelectionPage: React.FC<CourseSelectionPageProps> = ({
 
   onLogout,
 
-  onDiscover
+  onDiscover,
+
+  masteryByClass = {},
 
 }) => {
 
@@ -130,15 +135,17 @@ export const CourseSelectionPage: React.FC<CourseSelectionPageProps> = ({
 
   // Instructor: all come from /classes/my
 
-  const instructorOwnedCourses = courses;
+  // Inject real mastery score for each enrolled course
+  const coursesWithProgress = courses.map(c =>
+    masteryByClass[c.id] !== undefined
+      ? { ...c, progress: masteryByClass[c.id] }
+      : c
+  );
 
-  // Student course categories — use enrollmentStatus from API
-
-  const activeCourses    = courses.filter(c => c.enrollmentStatus === 'active' && (c.progress ?? 0) < 100);
-
-  const pendingCourses   = courses.filter(c => c.enrollmentStatus === 'pending');
-
-  const completedCourses = courses.filter(c => c.enrollmentStatus === 'active' && c.progress === 100);
+  const instructorOwnedCourses = coursesWithProgress.filter(c => c.role === 'Instructor');
+  const activeCourses    = coursesWithProgress.filter(c => c.enrollmentStatus === 'active' && (c.progress ?? 0) < 100);
+  const pendingCourses   = coursesWithProgress.filter(c => pendingCourseIds.includes(c.id));
+  const completedCourses = coursesWithProgress.filter(c => c.enrollmentStatus === 'active' && c.progress === 100);
 
   const handleSubmit = async (e: React.FormEvent) => {
 
@@ -1256,7 +1263,7 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, index, isEnrolle
 
           <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">
 
-            <span>Core Mastery</span>
+            <span>Progress</span>
 
             <span className="text-emerald-400">{course.progress}%</span>
 

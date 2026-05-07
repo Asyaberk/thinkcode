@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area, Cell } from 'recharts';
-import { BookOpen, Target, Users, Lightbulb, AlertTriangle, TrendingUp, Activity, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { BookOpen, Target, Users, Lightbulb, AlertTriangle, TrendingUp, Activity, Search, ChevronUp, ChevronDown, X, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
 
 const card = "bg-slate-900 border border-slate-800 rounded-2xl p-6";
 const badge = (color: string) => `text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${color}`;
@@ -231,55 +231,352 @@ export const ProblemInsightsView = ({ problemStats }: any) => {
   );
 };
 
+// ── STUDENT HISTORY MODAL ────────────────────────────────────────────────────
+const StudentHistoryModal = ({ student, classId, onClose }: { student: any; classId?: string; onClose: () => void }) => {
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!student?.id) { setError('No student ID available.'); setLoading(false); return; }
+    setLoading(true);
+    setError('');
+    // Use the correct token key the app stores — 'access_token'
+    const token = localStorage.getItem('access_token') || '';
+    const qs = classId ? `?class_id=${classId}` : '';
+    fetch(`/api/v1/analytics/students/${student.id}/history${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const text = await r.text();
+          throw new Error(`${r.status}: ${text}`);
+        }
+        return r.json();
+      })
+      .then(d => {
+        setHistory(Array.isArray(d) ? d : []);
+        // Auto-expand all topics on load
+        if (Array.isArray(d)) setExpanded(new Set(d.map((t: any) => t.topic_id)));
+        setLoading(false);
+      })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, [student?.id, classId]);
+
+  const toggleTopic = (id: string) =>
+    setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const totalWrong   = history.reduce((n, t) => n + t.wrong_count, 0);
+  const totalAttempts = history.reduce((n, t) => n + t.total_attempts, 0);
+
+  return (
+    <AnimatePresence>
+      {/* Backdrop */}
+      <motion.div
+        key="backdrop"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+      />
+      {/* Slide-over */}
+      <motion.aside
+        key="panel"
+        initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 260 }}
+        className="fixed right-0 top-0 h-full w-[520px] max-w-full bg-[#0f172a] border-l border-slate-800 z-50 flex flex-col shadow-2xl"
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-6 border-b border-slate-800 shrink-0">
+          <div>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Student History</p>
+            <h2 className="text-lg font-bold text-white">{student.name}</h2>
+            <div className="flex items-center gap-4 mt-2">
+              <span className="text-xs text-slate-400">
+                <span className="font-bold text-white">{totalAttempts}</span> total attempts
+              </span>
+              <span className="text-xs text-rose-400">
+                <span className="font-bold">{totalWrong}</span> wrong
+              </span>
+              <span className="text-xs text-emerald-400">
+                <span className="font-bold">{totalAttempts - totalWrong}</span> correct
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {loading ? (
+            <div className="flex items-center justify-center h-40 gap-3 text-slate-400">
+              <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              Loading history…
+            </div>
+          ) : error ? (
+            <div className="text-center py-16">
+              <XCircle size={36} className="mx-auto mb-3 text-rose-500 opacity-60" />
+              <p className="text-rose-400 text-sm font-bold">Failed to load</p>
+              <p className="text-slate-600 text-xs mt-1 font-mono break-all px-4">{error}</p>
+            </div>
+          ) : history.length === 0 ? (
+            <div className="text-center text-slate-600 py-16">
+              <BookOpen size={36} className="mx-auto mb-3 opacity-30" />
+              <p>No submissions found for this student.</p>
+            </div>
+          ) : history.map((topic: any) => {
+            const isOpen = expanded.has(topic.topic_id);
+            const wrongPct = topic.total_attempts > 0
+              ? Math.round((topic.wrong_count / topic.total_attempts) * 100) : 0;
+            const barCol = wrongPct >= 60 ? '#ef4444' : wrongPct >= 30 ? '#f59e0b' : '#10b981';
+            return (
+              <div key={topic.topic_id} className="rounded-2xl border border-slate-800 overflow-hidden">
+                {/* Topic header row */}
+                <button
+                  onClick={() => toggleTopic(topic.topic_id)}
+                  className="w-full flex items-center gap-3 p-4 bg-slate-900/70 hover:bg-slate-800/60 transition-colors text-left"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-bold text-white truncate">{topic.topic_name}</span>
+                      {topic.wrong_count > 0 && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-400">
+                          {topic.wrong_count} wrong
+                        </span>
+                      )}
+                    </div>
+                    {/* Mini progress bar */}
+                    <div className="w-full h-1 bg-slate-800 rounded-full">
+                      <div
+                        className="h-1 rounded-full transition-all"
+                        style={{ width: `${100 - wrongPct}%`, backgroundColor: barCol }}
+                      />
+                    </div>
+                    <div className="flex gap-3 mt-1">
+                      <span className="text-[10px] text-slate-500">{topic.problem_count} problems</span>
+                      <span className="text-[10px] text-slate-500">{topic.total_attempts} attempts</span>
+                      <span className="text-[10px] text-emerald-500">{topic.correct_count} solved</span>
+                    </div>
+                  </div>
+                  <ChevronRight
+                    size={14}
+                    className={`text-slate-600 transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`}
+                  />
+                </button>
+
+                {/* Problem rows */}
+                {isOpen && (
+                  <div className="border-t border-slate-800 divide-y divide-slate-800/60">
+                    {topic.problems.map((p: any) => (
+                      <div key={p.problem_id} className="flex items-center gap-3 px-4 py-3 bg-slate-950/50 hover:bg-slate-800/30 transition-colors">
+                        {/* Correct / Wrong icon */}
+                        {p.ever_correct
+                          ? <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                          : <XCircle       size={15} className="text-rose-500 shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-slate-200 truncate">{p.problem_title}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                              p.difficulty === 'easy' ? 'bg-emerald-500/10 text-emerald-400'
+                              : p.difficulty === 'hard' ? 'bg-rose-500/10 text-rose-400'
+                              : 'bg-amber-500/10 text-amber-400'
+                            }`}>{p.difficulty}</span>
+                            <span className="text-[10px] text-slate-500">{p.attempts} attempt{p.attempts !== 1 ? 's' : ''}</span>
+                            {p.wrong_attempts > 0 && (
+                              <span className="text-[10px] text-rose-400">{p.wrong_attempts} wrong</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-xs font-black" style={{ color: scoreColor(p.ever_correct ? (p.best_score / p.max_score) * 100 : 0) }}>
+                            {p.ever_correct ? `${Math.round((p.best_score / p.max_score) * 100)}%` : '—'}
+                          </div>
+                          {p.last_attempt_at && (
+                            <div className="text-[9px] text-slate-600">
+                              {new Date(p.last_attempt_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </motion.aside>
+    </AnimatePresence>
+  );
+};
+
 // ── STUDENT PERFORMANCE ───────────────────────────────────────────────────────
-export const StudentPerformanceView = ({ data, engagementData }: any) => {
-  const [search, setSearch] = useState('');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const students = [...(data?.students ?? [])].filter((s: any) => s.name.toLowerCase().includes(search.toLowerCase())).sort((a: any, b: any) => sortDir === 'desc' ? b.averageScore - a.averageScore : a.averageScore - b.averageScore);
-  const activeNames = new Set((engagementData?.top_active_students ?? []).map((s: any) => `${s.first_name} ${s.last_name}`));
+type SortKey = 'score' | 'attempted' | 'passed' | 'weakTopic';
+
+export const StudentPerformanceView = ({ data, engagementData, activeClassId }: any) => {
+  const [search, setSearch]           = useState('');
+  const [sortKey, setSortKey]         = useState<SortKey>('score');
+  const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('desc');
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'top' | 'mid' | 'low'>('all');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
+
+  const activeNames = new Set(
+    (engagementData?.top_active_students ?? []).map((s: any) => `${s.first_name} ${s.last_name}`)
+  );
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return <span className="opacity-20"><ChevronDown size={10} /></span>;
+    return sortDir === 'desc' ? <ChevronDown size={10} className="text-emerald-400" /> : <ChevronUp size={10} className="text-emerald-400" />;
+  };
+
+  const getPassed = (s: any) =>
+    s.questionsAttempted > 0 ? Math.round(s.questionsAttempted * (s.averageScore / 100)) : 0;
+
+  const allStudents = (data?.students ?? []) as any[];
+  const totalCount  = allStudents.length;
+
+  // Score percentile boundaries
+  const sorted25  = [...allStudents].sort((a, b) => b.averageScore - a.averageScore);
+  const top25Cutoff = sorted25[Math.floor(totalCount * 0.25) - 1]?.averageScore ?? 100;
+  const low25Cutoff = sorted25[Math.floor(totalCount * 0.75) - 1]?.averageScore ?? 0;
+
+  const students = allStudents
+    .filter((s: any) => {
+      if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+      const isActive = activeNames.has(s.name);
+      if (scoreFilter === 'top' && s.averageScore < top25Cutoff) return false;
+      if (scoreFilter === 'low' && s.averageScore > low25Cutoff) return false;
+      if (scoreFilter === 'mid' && (s.averageScore >= top25Cutoff || s.averageScore <= low25Cutoff)) return false;
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      let diff = 0;
+      if (sortKey === 'score')    diff = b.averageScore - a.averageScore;
+      if (sortKey === 'attempted') diff = b.questionsAttempted - a.questionsAttempted;
+      if (sortKey === 'passed')   diff = getPassed(b) - getPassed(a);
+      if (sortKey === 'weakTopic') diff = (a.weakTopic ?? '').localeCompare(b.weakTopic ?? '');
+      return sortDir === 'desc' ? diff : -diff;
+    });
+
+  const ColHeader = ({ k, label, className = '' }: { k: SortKey; label: string; className?: string }) => (
+    <button
+      onClick={() => handleSort(k)}
+      className={`flex items-center gap-1 hover:text-slate-300 transition-colors ${sortKey === k ? 'text-emerald-400' : ''} ${className}`}
+    >
+      {label}<SortIcon k={k} />
+    </button>
+  );
+
   return (
     <div className="space-y-4">
+      {selectedStudent && (
+        <StudentHistoryModal
+          student={selectedStudent}
+          classId={activeClassId}
+          onClose={() => setSelectedStudent(null)}
+        />
+      )}
       <PageBanner
         icon="👥"
         title="Student Performance — Rankings & Engagement"
-        description="All students ranked by mastery score. A green dot means the student was active in the last 7 days; grey means no recent activity. The .Weak Topic. column shows where each student needs the most support — use it to identify who needs 1-on-1 attention."
+        description="All students ranked by mastery score. Click any column header to sort ascending or descending. Use the filters to narrow by activity level or performance tier. A green dot means the student was active in the last 7 days."
         legendItems={[
           { dot: '#10b981', label: 'Active — practiced in last 7 days' },
           { dot: '#334155', label: 'Passive — no recent activity' },
         ]}
       />
       <div className={card}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users size={14} /> Student Rankings</h3>
-          <div className="flex items-center gap-2">
-            <div className="relative"><Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="pl-7 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 w-36 outline-none" /></div>
-            <button onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')} className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white">{sortDir === 'desc' ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>
+        {/* ── Toolbar ── */}
+        <div className="flex flex-wrap items-center gap-3 mb-5">
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 shrink-0">
+            <Users size={14} /> Student Rankings
+          </h3>
+          <div className="flex-1" />
+
+          {/* Search */}
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search student…"
+              className="pl-7 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 w-40 outline-none focus:border-emerald-500/50"
+            />
           </div>
+
+          {/* Score range filter */}
+          <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
+            {([
+              { k: 'all', label: 'All Scores' },
+              { k: 'top', label: 'Top 25%' },
+              { k: 'mid', label: 'Middle 50%' },
+              { k: 'low', label: 'Bottom 25%' },
+            ] as const).map(({ k, label }) => (
+              <button
+                key={k} onClick={() => setScoreFilter(k)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                  scoreFilter === k ? 'bg-violet-500/20 text-violet-300' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Result count */}
+          <span className="text-[10px] text-slate-600 font-bold">{students.length}/{totalCount}</span>
         </div>
-        <div className="grid grid-cols-[28px_1fr_80px_80px_80px_120px] gap-2 px-3 mb-2 text-[9px] font-black text-slate-600 uppercase tracking-widest">
-          <span>#</span><span>Name</span><span className="text-center">Score</span><span className="text-center">Attempted</span><span className="text-center">Passed</span><span>Weak Topic</span>
+
+        {/* ── Column Headers ── */}
+        <div className="grid grid-cols-[28px_1fr_90px_90px_80px_130px] gap-2 px-3 mb-2 text-[9px] font-black text-slate-600 uppercase tracking-widest">
+          <span>#</span>
+          <span>Name</span>
+          <span className="flex justify-center"><ColHeader k="score"    label="Score" /></span>
+          <span className="flex justify-center"><ColHeader k="attempted" label="Attempted" /></span>
+          <span className="flex justify-center"><ColHeader k="passed"   label="Passed" /></span>
+          <span><ColHeader k="weakTopic" label="Weak Topic" /></span>
         </div>
+
+        {/* ── Rows ── */}
         <div className="space-y-1 max-h-[560px] overflow-y-auto pr-1">
-          {students.map((s: any, i: number) => {
+          {students.length === 0 ? (
+            <p className="text-center text-slate-600 text-sm py-8">No students match the current filters.</p>
+          ) : students.map((s: any, i: number) => {
             const isActive = activeNames.has(s.name);
+            const passed   = getPassed(s);
             return (
-              <div key={i} className="grid grid-cols-[28px_1fr_80px_80px_80px_120px] gap-2 items-center p-3 rounded-xl bg-slate-950/50 hover:bg-slate-800/40 transition-colors">
+              <div
+                key={i}
+                onClick={() => setSelectedStudent(s)}
+                className="grid grid-cols-[28px_1fr_90px_90px_80px_130px] gap-2 items-center p-3 rounded-xl bg-slate-950/50 hover:bg-slate-800/40 transition-colors cursor-pointer"
+              >
                 <div className="text-[10px] font-black text-slate-600">{i + 1}</div>
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-slate-700'}`} />
                   <span className="text-xs font-medium text-slate-200 truncate">{s.name}</span>
                 </div>
                 <div className="text-center">
-                  <span className="text-xs font-black" style={{ color: scoreColor(s.averageScore) }}>{s.averageScore.toFixed(1)}%</span>
+                  <span className="text-xs font-black" style={{ color: scoreColor(s.averageScore) }}>
+                    {s.averageScore.toFixed(1)}%
+                  </span>
                 </div>
                 <div className="text-center text-xs text-slate-400">{s.questionsAttempted}</div>
-                <div className="text-center text-xs text-slate-400">{s.questionsAttempted > 0 ? Math.round(s.questionsAttempted * (s.averageScore / 100)) : 0}</div>
-                <div className="text-[10px] text-slate-500 truncate">{s.weakTopic !== 'N/A' ? s.weakTopic : '—'}</div>
+                <div className="text-center text-xs text-slate-400">{passed}</div>
+                <div className="text-[10px] text-slate-500 truncate">
+                  {s.weakTopic !== 'N/A' ? s.weakTopic : '—'}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
+
       {/* Active vs Passive split */}
       {engagementData && (
         <div className="grid grid-cols-2 gap-4">

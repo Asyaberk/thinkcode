@@ -180,7 +180,7 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
 
     return (
 
-      <div className="flex h-screen bg-[#0f172a] items-center justify-center">
+      <div className="flex h-[calc(100vh-180px)] bg-[#0f172a] items-center justify-center">
 
         <div className="flex flex-col items-center gap-4 text-slate-400">
 
@@ -198,7 +198,7 @@ export const ProblemsPage: React.FC<ProblemsPageProps> = ({
 
   return (
 
-    <div className="flex h-screen bg-[#0f172a]">
+    <div className="flex h-[calc(100vh-180px)] bg-[#0f172a]">
 
       <Sidebar
 

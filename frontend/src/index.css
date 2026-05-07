@@ -15,8 +15,17 @@
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+  }
   body {
     @apply font-sans text-slate-200 bg-ui-bg antialiased;
+    overflow-x: hidden;
+  }
+  /* All overflow-y-auto containers scroll smoothly */
+  * {
+    scroll-behavior: smooth;
   }
 }
 

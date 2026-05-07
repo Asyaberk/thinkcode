@@ -71,6 +71,9 @@ interface CourseBuilderPageProps {
   activeCourseId?: string;
   /** Amber badge count for pending enrollment requests. */
   pendingEnrollmentsCount?: number;
+  /** Analytics sub-view — passed through so Class Analytics dropdown works from any page */
+  activeAnalyticsView?: string;
+  onAnalyticsViewChange?: (view: string) => void;
 }
 
 type Tab = 'Topics' | 'Lessons' | 'Questions';
@@ -777,10 +780,16 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   sections, onDashboardClick, onProblemsClick, onAnalyticsClick,
 
+  onFlowDesignerClick,
+
   onSectionSelect, onInstructorDashboardClick, onCourseBuilderClick,
 
-  onFlowDesignerClick, onEnrollmentManagementClick, onLogout, onSwitchCourse, courseName, userRole,
-  activeCourseId, pendingEnrollmentsCount = 0,
+  onEnrollmentManagementClick, onLogout, onSwitchCourse,
+
+  courseName, userRole, activeCourseId, pendingEnrollmentsCount = 0,
+
+  activeAnalyticsView, onAnalyticsViewChange,
+
 }) => {
 
   const [activeTab, setActiveTab] = useState<Tab>('Topics');
@@ -1139,7 +1148,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   return (
 
-    <div className="flex h-screen bg-[#0f1623] text-slate-200 overflow-hidden font-sans">
+    <div className="flex h-[calc(100vh-180px)] bg-[#0f1623] text-slate-200 overflow-hidden font-sans">
 
       {/* Modals */}
 
@@ -1208,11 +1217,10 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         onEnrollmentManagementClick={onEnrollmentManagementClick}
         pendingEnrollmentsCount={pendingEnrollmentsCount}
         onSwitchCourse={onSwitchCourse}
-
+        activeAnalyticsView={activeAnalyticsView}
+        onAnalyticsViewChange={onAnalyticsViewChange}
         onLogout={onLogout} userRole={userRole}
-
         courseName={courseName}
-
       />
 
       <main className="flex-1 overflow-hidden ml-72 flex flex-col">

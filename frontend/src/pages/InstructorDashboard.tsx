@@ -112,6 +112,8 @@ interface OpenResponseStats {
 
 interface StudentRow {
 
+  id: string;
+
   name: string;
 
   averageScore: number;
@@ -173,6 +175,12 @@ interface InstructorDashboardProps {
 
   /** Amber badge count for pending enrollment requests. */
   pendingEnrollmentsCount?: number;
+
+  /** Which analytics sub-view to show on mount (lifted state from App.tsx). */
+  initialView?: 'overview'|'topics'|'problems'|'students'|'hints'|'gaps';
+
+  /** Called when the user changes the sub-view so App.tsx can persist it. */
+  onAnalyticsViewChange?: (view: string) => void;
 
 }
 
@@ -311,6 +319,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   activeCourseId,
   onClassChange,
   pendingEnrollmentsCount = 0,
+  initialView = 'overview',
+  onAnalyticsViewChange,
 }) => {
 
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
@@ -355,9 +365,17 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
   };
 
-  // ── State ────────────────────────────────────────────────────────────────
+  // ── State ───────────────────────────────────────────────────────
 
-  const [activeView, setActiveView] = useState<'overview'|'topics'|'problems'|'students'|'hints'|'gaps'>('overview');
+  const [activeView, setActiveView] = useState<'overview'|'topics'|'problems'|'students'|'hints'|'gaps'>(initialView);
+
+  // Sync when App.tsx changes the view externally (e.g. sidebar sub-view click from another page)
+  useEffect(() => { setActiveView(initialView); }, [initialView]);
+
+  const handleViewChange = (v: 'overview'|'topics'|'problems'|'students'|'hints'|'gaps') => {
+    setActiveView(v);
+    onAnalyticsViewChange?.(v);
+  };
 
   const [data, setData] = useState<InstructorData>(LOADING_DATA);
 
@@ -482,6 +500,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
         const avgScore = parseFloat(dashboard.average_mastery) || 0;
 
         const studentRows: StudentRow[] = students.map((s: any, i: number) => ({
+
+          id: s.student_id || s.id || '',
 
           name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || `Student ${i + 1}`,
 
@@ -675,7 +695,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
   return (
 
-    <div className="flex h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
+    <div className="flex h-[calc(100vh-180px)] bg-[#0f172a] text-slate-200 overflow-hidden">
 
       <Sidebar
 
@@ -707,9 +727,9 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
 
         activeAnalyticsView={activeView}
 
-        onAnalyticsViewChange={(v) => setActiveView(v as any)}
+        onAnalyticsViewChange={(v) => handleViewChange(v as any)}
 
-        onInstructorDashboardClick={() => { setActiveView('overview'); onInstructorDashboardClick?.(); }}
+        onInstructorDashboardClick={() => { handleViewChange('overview'); onInstructorDashboardClick?.(); }}
 
       />
 
@@ -739,7 +759,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
           )}
           {activeView === 'topics' && <TopicAnalysisView topicHeatmap={topicHeatmap} />}
           {activeView === 'problems' && <ProblemInsightsView problemStats={problemStats} />}
-          {activeView === 'students' && <StudentPerformanceView data={data} engagementData={engagementData} />}
+          {activeView === 'students' && <StudentPerformanceView data={data} engagementData={engagementData} activeClassId={activeClassId} />}
           {activeView === 'hints' && <HintAnalyticsView hintData={hintData} />}
           {activeView === 'gaps' && (
             <KnowledgeGapsView gapsData={gapsData} onAnalyzeGaps={handleGenerateReport}

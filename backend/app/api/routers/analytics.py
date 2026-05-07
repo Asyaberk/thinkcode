@@ -696,6 +696,99 @@ def student_mastery(
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Full submission history for a student (instructor view)
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/students/{student_id}/history",
+    summary="Full submission history for a student — grouped by topic (instructor view)",
+)
+def student_history(
+    student_id: str,
+    class_id: Optional[str] = Query(None, description="Filter to a specific class"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns every problem this student has ever attempted, grouped by topic.
+    Each entry includes attempt count, whether they ever got it correct,
+    their best score, and timestamp of the latest attempt.
+    Instructors only (students cannot see other students' history).
+    """
+    if current_user.role == "student" and current_user.id != student_id:
+        raise HTTPException(403, "Access denied")
+    if current_user.role not in ("instructor", "admin") and current_user.id != student_id:
+        raise HTTPException(403, "Access denied")
+
+    params: dict = {"student_id": student_id}
+    class_filter = ""
+    if class_id:
+        class_filter = "AND s.class_id = :class_id"
+        params["class_id"] = class_id
+
+    rows = db.execute(text(f"""
+        SELECT
+            t.id                                          AS topic_id,
+            t.name                                        AS topic_name,
+            p.id                                          AS problem_id,
+            p.title                                       AS problem_title,
+            p.difficulty                                  AS difficulty,
+            p.type                                        AS problem_type,
+            COUNT(s.id)                                   AS attempts,
+            BOOL_OR(s.is_correct)                         AS ever_correct,
+            MAX(COALESCE(s.score, 0))                     AS best_score,
+            MAX(COALESCE(s.max_score, 100))               AS max_score,
+            MAX(s.submitted_at)                           AS last_attempt_at,
+            SUM(CASE WHEN NOT s.is_correct THEN 1 ELSE 0 END) AS wrong_attempts
+        FROM submissions s
+        JOIN problems p  ON p.id = s.problem_id
+        JOIN topics  t   ON t.id = p.topic_id
+        WHERE s.student_id = :student_id
+          {class_filter}
+        GROUP BY t.id, t.name, p.id, p.title, p.difficulty, p.type
+        ORDER BY t.name, ever_correct ASC, wrong_attempts DESC, p.title
+    """), params).mappings().all()
+
+    # Group by topic
+    topics: dict = {}
+    for r in rows:
+        tid = r["topic_id"]
+        if tid not in topics:
+            topics[tid] = {
+                "topic_id":   tid,
+                "topic_name": r["topic_name"],
+                "problems":   [],
+            }
+        topics[tid]["problems"].append({
+            "problem_id":    r["problem_id"],
+            "problem_title": r["problem_title"],
+            "difficulty":    r["difficulty"],
+            "problem_type":  r["problem_type"],
+            "attempts":      int(r["attempts"] or 0),
+            "wrong_attempts":int(r["wrong_attempts"] or 0),
+            "ever_correct":  bool(r["ever_correct"]),
+            "best_score":    float(r["best_score"] or 0),
+            "max_score":     float(r["max_score"] or 100),
+            "last_attempt_at": r["last_attempt_at"].isoformat() if r["last_attempt_at"] else None,
+        })
+
+    # Compute topic-level summary
+    result = []
+    for t in topics.values():
+        probs = t["problems"]
+        t["total_attempts"]  = sum(p["attempts"] for p in probs)
+        t["wrong_count"]     = sum(p["wrong_attempts"] for p in probs)
+        t["correct_count"]   = sum(1 for p in probs if p["ever_correct"])
+        t["problem_count"]   = len(probs)
+        result.append(t)
+
+    # Sort topics: most wrong first
+    result.sort(key=lambda t: t["wrong_count"], reverse=True)
+    return result
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Recent submissions list
 
 # ─────────────────────────────────────────────────────────────────────────────

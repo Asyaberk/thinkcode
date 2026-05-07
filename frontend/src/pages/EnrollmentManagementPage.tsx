@@ -27,9 +27,11 @@ interface EnrollmentManagementPageProps {
   userRole?: UserRole;
   courseName?: string;
   token: string | null;
+  activeAnalyticsView?: string;
+  onAnalyticsViewChange?: (view: string) => void;
 }
 
-type FilterTab = 'pending' | 'active' | 'all';
+type FilterTab = 'pending' | 'enrolled';
 
 const STATUS_CONFIG = {
   pending:  { label: 'Pending',  color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',   icon: Clock },
@@ -43,6 +45,7 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
   onInstructorDashboardClick, onCourseBuilderClick, onFlowDesignerClick,
   onEnrollmentManagementClick, onLogout, onSwitchCourse,
   userRole, courseName, token,
+  activeAnalyticsView, onAnalyticsViewChange,
 }) => {
   const [filter, setFilter]           = useState<FilterTab>('pending');
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
@@ -61,7 +64,7 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
     if (!token || !classId) return;
     setIsLoading(true);
     try {
-      const data = await listEnrollments(classId, token, filter === 'all' ? undefined : filter);
+      const data = await listEnrollments(classId, token, filter === 'enrolled' ? 'active' : filter);
       setEnrollments(data);
       // keep pending badge up to date
       if (filter !== 'pending') {
@@ -117,7 +120,7 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
     );
   });
 
-  const tabs: FilterTab[] = ['pending', 'active', 'all'];
+  const tabs: FilterTab[] = ['pending', 'enrolled'];
 
   return (
     <div className="flex min-h-screen bg-[#0f172a]">
@@ -137,6 +140,8 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
         userRole={userRole}
         courseName={courseName}
         progressPercent={0}
+        activeAnalyticsView={activeAnalyticsView}
+        onAnalyticsViewChange={onAnalyticsViewChange}
       />
 
       <div className="flex-1 ml-72 p-8 lg:p-12 text-slate-200">
@@ -206,7 +211,7 @@ export const EnrollmentManagementPage: React.FC<EnrollmentManagementPageProps> =
                           : 'text-slate-400 hover:text-white'
                       )}
                     >
-                      {tab}
+                      {tab === 'pending' ? 'Pending' : 'Enrolled'}
                       {tab === 'pending' && pendingCount > 0 && (
                         <span className="ml-1.5 bg-slate-950/30 rounded-full px-1">{pendingCount}</span>
                       )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle2, Circle, ChevronRight, ChevronDown, LayoutDashboard, Code2, BarChart3, LogOut, Layers, GitBranch, Lock, Users, BookOpen, AlertTriangle, Lightbulb, Target, TrendingUp, Activity } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Section, UserRole } from '../types';
@@ -55,6 +55,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [analyticsOpen, setAnalyticsOpen] = useState(
     ['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)
   );
+
+  // Sync accordion open state whenever activeAnalyticsView changes from outside
+  useEffect(() => {
+    if (['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)) {
+      setAnalyticsOpen(true);
+    }
+  }, [activeAnalyticsView]);
 
   // Compute from sections if progressPercent not passed
   const computed = sections.length > 0
@@ -138,7 +145,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* ── Class Analytics accordion ───────────────── */}
             <div className="space-y-0.5">
               <button
-                onClick={() => setAnalyticsOpen(o => !o)}
+                onClick={() => {
+                  const willOpen = !analyticsOpen;
+                  setAnalyticsOpen(willOpen);
+                  // When opening, navigate to topics (first sub-view) if currently on overview
+                  if (willOpen && !['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)) {
+                    onAnalyticsViewChange?.('topics');
+                  }
+                }}
                 className={cn(
                   "w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-medium transition-all group",
                   ['topics','problems','students','hints','gaps'].includes(activeAnalyticsView)

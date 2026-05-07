@@ -90,7 +90,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const completedCount  = sections.filter(s => s.isCompleted).length;
   const totalCount      = sections.length;
   const overallMastery  = dashData?.overall_mastery_score ?? 0;
-  const progressPercent = Math.round(overallMastery);
+  const completionPct   = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const progressPercent = completionPct;
   const percentile      = dashData?.percentile ?? 50;
   const rank            = dashData?.rank ?? null;
   const totalStudents   = dashData?.total_students_in_class ?? 0;

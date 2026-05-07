@@ -32,6 +32,8 @@ interface FlowDesignerPageProps {
   userRole?: UserRole;
   onDeploySuccess?: (classId: string) => void;
   pendingEnrollmentsCount?: number;
+  activeAnalyticsView?: string;
+  onAnalyticsViewChange?: (view: string) => void;
 }
 
 type NodeType =
@@ -345,7 +347,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   onAnalyticsClick, onSectionSelect, onInstructorDashboardClick,
   onCourseBuilderClick, onFlowDesignerClick, onEnrollmentManagementClick,
   onLogout, onSwitchCourse, courseName, userRole, onDeploySuccess,
-  pendingEnrollmentsCount = 0,
+  pendingEnrollmentsCount = 0, activeAnalyticsView, onAnalyticsViewChange,
 }) => {
   const { classes: instructorClasses, refetch: refetchClasses } = useInstructorClasses();
   const [activeClassId, setActiveClassId] = React.useState<string>(classIdProp || '');
@@ -406,7 +408,7 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
   };
 
   return (
-    <div className="flex h-screen bg-[#0b1120] text-slate-200 overflow-hidden font-sans">
+    <div className="flex h-[calc(100vh-180px)] bg-[#0b1120] text-slate-200 overflow-hidden font-sans">
       <Sidebar
         sections={sections} activeSectionId="flow-designer"
         onSectionSelect={onSectionSelect} onDashboardClick={onDashboardClick}
@@ -418,6 +420,8 @@ export const FlowDesignerPage: React.FC<FlowDesignerPageProps> = ({
         pendingEnrollmentsCount={pendingEnrollmentsCount}
         onSwitchCourse={onSwitchCourse} onLogout={onLogout}
         userRole={userRole} courseName={courseName}
+        activeAnalyticsView={activeAnalyticsView}
+        onAnalyticsViewChange={onAnalyticsViewChange}
       />
 
       <div className="flex-1 flex flex-col ml-72 overflow-hidden">

@@ -110,7 +110,7 @@ export default function App() {
 
   const _storedCourseId = localStorage.getItem('tc_active_course_id') || '';
 
-  const { classId: masteryClassId, topicMasteryMap, topicPassedMap, topicAttemptedMap, refetch: refetchMastery } = useMastery(_storedCourseId || undefined);
+  const { classId: masteryClassId, topicMasteryMap, topicPassedMap, topicAttemptedMap, refetch: refetchMastery, dashboard: masteryDashboard } = useMastery(_storedCourseId || undefined);
 
   // Effective classId: prefer actively selected course, fall back to first enrollment
 
@@ -156,6 +156,42 @@ export default function App() {
 
   // Global pending enrollment count — shown as amber badge on all instructor sidebar pages
   const [pendingEnrollmentsCount, setPendingEnrollmentsCount] = useState(0);
+
+  // Instructor analytics sub-view — persisted outside InstructorDashboard so it survives page switches
+  const [instructorView, setInstructorView] = useState<'overview'|'topics'|'problems'|'students'|'hints'|'gaps'>('overview');
+
+  // Per-course mastery map for student course selection page: courseId → progress %
+  const [masteryByClass, setMasteryByClass] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (userRole !== 'Student' || !enrolledCourseIds.length || !token) return;
+    Promise.all(
+      enrolledCourseIds.map(async (classId) => {
+        try {
+          // Fetch dashboard (attempted topics + mastery) and all topics (for total count) in parallel
+          const [dashRes, topicsRes] = await Promise.all([
+            fetch(`/api/v1/analytics/me/dashboard?class_id=${classId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+            fetch(`/api/v1/topics?class_id=${classId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+          ]);
+          if (!dashRes.ok || !topicsRes.ok) return [classId, 0] as [string, number];
+          const [dash, allTopics] = await Promise.all([dashRes.json(), topicsRes.json()]);
+          const totalTopics = (allTopics as any[]).length;
+          if (totalTopics === 0) return [classId, 0] as [string, number];
+          // A topic is "completed" when its mastery score >= 60 (same threshold as Sidebar)
+          const completedTopics = ((dash.all_topics ?? []) as any[]).filter(
+            (t: any) => (t.mastery_score ?? 0) >= 60
+          ).length;
+          return [classId, Math.round((completedTopics / totalTopics) * 100)] as [string, number];
+        } catch {
+          return [classId, 0] as [string, number];
+        }
+      })
+    ).then(results => setMasteryByClass(Object.fromEntries(results)));
+  }, [userRole, enrolledCourseIds, token]);
 
   useEffect(() => {
     if (userRole !== 'Instructor' || !activeCourseId || !token) return;
@@ -335,7 +371,12 @@ export default function App() {
 
   };
 
-  const handleSwitchCourse = () => setCurrentPage('course-selection');
+  const handleSwitchCourse = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setActiveCourseId('');
+    setCurrentPage('course-selection');
+  };
+
 
   useEffect(() => {
 
@@ -629,6 +670,9 @@ export default function App() {
 
     }
 
+    // Refresh mastery so sidebar turns green immediately
+    refetchMastery();
+
     setConsecutiveCorrect(0);
 
     setMasteryQuestionIndex(0);
@@ -762,6 +806,8 @@ export default function App() {
         onLogout={handleLogout}
 
         onDiscover={() => setCurrentPage('course-discovery')}
+
+        masteryByClass={masteryByClass}
 
       />
 
@@ -1033,13 +1079,18 @@ export default function App() {
 
           onAnalyticsClick={() => setCurrentPage('analytics')}
 
-          onInstructorDashboardClick={() => setCurrentPage('instructor-dashboard')}
+          onInstructorDashboardClick={() => { setInstructorView('overview'); setCurrentPage('instructor-dashboard'); }}
 
           onCourseBuilderClick={() => setCurrentPage('course-builder')}
 
           onFlowDesignerClick={() => setCurrentPage('flow-designer')}
 
           onEnrollmentManagementClick={() => setCurrentPage('enrollment-management')}
+
+          onAnalyticsViewChange={(v: string) => {
+            setInstructorView(v as any);
+            setCurrentPage('instructor-dashboard');
+          }}
 
           onLogout={handleLogout}
 
@@ -1050,6 +1101,8 @@ export default function App() {
           courseName={courseName}
 
           activeCourseId={activeCourseId}
+
+          initialView={instructorView}
 
           onClassChange={(classId) => {
             setActiveCourseId(classId);
@@ -1093,6 +1146,10 @@ export default function App() {
 
           activeCourseId={activeCourseId}
           pendingEnrollmentsCount={pendingEnrollmentsCount}
+          onAnalyticsViewChange={(v: string) => {
+            setInstructorView(v as any);
+            setCurrentPage('instructor-dashboard');
+          }}
         />
 
       )}
@@ -1131,6 +1188,10 @@ export default function App() {
 
           onDeploySuccess={handleDeploySuccess}
           pendingEnrollmentsCount={pendingEnrollmentsCount}
+          onAnalyticsViewChange={(v: string) => {
+            setInstructorView(v as any);
+            setCurrentPage('instructor-dashboard');
+          }}
         />
 
       )}
@@ -1164,6 +1225,11 @@ export default function App() {
           courseName={courseName}
 
           token={token}
+
+          onAnalyticsViewChange={(v: string) => {
+            setInstructorView(v as any);
+            setCurrentPage('instructor-dashboard');
+          }}
 
         />
 
