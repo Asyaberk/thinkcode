@@ -8,3 +8,5 @@ coverage/
 !.env.example
 files
 ui-template
+backend/uploads/
+backend/.venv/

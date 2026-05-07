@@ -592,15 +592,15 @@ const ModalFooter: React.FC<{ saving: boolean; onClose: () => void; onSave: () =
 
 const TopicCard: React.FC<{ topic: DbTopic; onEdit: () => void; onDelete: () => void }> = ({ topic, onEdit, onDelete }) => (
 
-  <div className="bg-[#0f1623] border border-slate-800 p-4 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
+  <div className="bg-[#0f1623] border border-slate-800 p-5 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
 
     <div className="flex justify-between items-start">
 
       <div className="flex-1 min-w-0">
 
-        <h3 className="text-xs font-bold text-white group-hover:text-[#00e5a0] transition-colors">{topic.name}</h3>
+        <h3 className="text-sm font-bold text-white group-hover:text-[#00e5a0] transition-colors">{topic.name}</h3>
 
-        {topic.description && <p className="text-[11px] text-slate-500 leading-relaxed mt-1">{topic.description}</p>}
+        {topic.description && <p className="text-xs text-slate-500 leading-relaxed mt-1.5">{topic.description}</p>}
 
       </div>
 
@@ -614,23 +614,23 @@ const TopicCard: React.FC<{ topic: DbTopic; onEdit: () => void; onDelete: () => 
 
 const LessonCard: React.FC<{ lesson: DbLesson; onEdit: () => void; onDelete: () => void }> = ({ lesson, onEdit, onDelete }) => (
 
-  <div className="bg-[#0f1623] border border-slate-800 p-4 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
+  <div className="bg-[#0f1623] border border-slate-800 p-5 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
 
     <div className="flex justify-between items-start">
 
       <div className="flex-1 min-w-0">
 
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1.5">
 
-          <BookOpen size={13} className="text-slate-500 shrink-0" />
+          <BookOpen size={14} className="text-slate-500 shrink-0" />
 
-          <h3 className="text-xs font-bold text-white group-hover:text-[#00e5a0] transition-colors">{lesson.title}</h3>
+          <h3 className="text-sm font-bold text-white group-hover:text-[#00e5a0] transition-colors">{lesson.title}</h3>
 
           {lesson.estimated_minutes && (
 
-            <span className="ml-auto text-[9px] text-slate-600 flex items-center gap-0.5 shrink-0">
+            <span className="ml-auto text-[10px] text-slate-600 flex items-center gap-0.5 shrink-0">
 
-              <Clock size={9} /> {lesson.estimated_minutes}m
+              <Clock size={10} /> {lesson.estimated_minutes}m
 
             </span>
 
@@ -638,13 +638,13 @@ const LessonCard: React.FC<{ lesson: DbLesson; onEdit: () => void; onDelete: () 
 
         </div>
 
-        {lesson.summary && <p className="text-[11px] text-slate-500 leading-relaxed mb-2">{lesson.summary}</p>}
+        {lesson.summary && <p className="text-xs text-slate-500 leading-relaxed mb-2">{lesson.summary}</p>}
 
         {lesson.content_markdown && (
 
-          <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800/50">
+          <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800/50 mt-2">
 
-            <p className="text-[10px] text-slate-400 font-mono leading-relaxed whitespace-pre-wrap line-clamp-4">
+            <p className="text-[11px] text-slate-400 font-mono leading-relaxed whitespace-pre-wrap line-clamp-4">
 
               {lesson.content_markdown.slice(0, 400)}{lesson.content_markdown.length > 400 ? '…' : ''}
 
@@ -666,7 +666,7 @@ const LessonCard: React.FC<{ lesson: DbLesson; onEdit: () => void; onDelete: () 
 
 const ProblemCard: React.FC<{ problem: DbProblem; onEdit: () => void; onDelete: () => void }> = ({ problem, onEdit, onDelete }) => (
 
-  <div className="bg-[#0f1623] border border-slate-800 p-4 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
+  <div className="bg-[#0f1623] border border-slate-800 p-5 rounded-xl group hover:border-[#00e5a0]/30 transition-all">
 
     <div className="flex justify-between items-start">
 
@@ -938,6 +938,12 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
     if (!file) return;
 
+    if (!weekName.trim()) {
+      setUploadError('Please enter a Module Label before uploading.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setUploading(true); setUploadError('');
 
     try {
@@ -979,6 +985,14 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
     if (!linkUrl.trim() || !linkTitle.trim()) {
 
       setLinkError('URL and title are required.');
+
+      return;
+
+    }
+
+    if (!linkWeekName.trim()) {
+
+      setLinkError('Module Label is required.');
 
       return;
 
@@ -1227,48 +1241,30 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
         {/* Header */}
 
-        <div className="p-6 border-b border-slate-800 bg-[#0f1623] shrink-0">
-          <div className="flex justify-between items-start mb-4">
-            <h1 className="text-xl font-bold text-white">Course Builder</h1>
-            {processingCount > 0 && (
-              <span className="text-xs text-amber-500 font-medium">⚙ Processing {processingCount} file{processingCount > 1 ? 's' : ''}…</span>
-            )}
+        <div className="px-8 py-5 border-b border-slate-800 bg-[#0f1623] shrink-0 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Course Builder</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Upload materials on the left — AI extracts topics, lessons & questions on the right.</p>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex gap-3 items-start">
-            <span className="text-xl shrink-0">🏗️</span>
-            <div>
-              <p className="text-sm font-bold text-white mb-0.5">Build your course content with AI assistance</p>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Upload your lecture slides, PDFs, or paste a link on the left — the AI will automatically extract topics, lessons, and practice questions on the right.
-                Review and edit before publishing to your students.
-              </p>
-              <div className="flex gap-4 mt-2">
-                {[
-                  { dot: '#6366f1', label: 'Upload → Extract Content → Review' },
-                  { dot: '#00e5a0', label: 'Topics & Lessons generated by AI' },
-                  { dot: '#f59e0b', label: 'Processing — AI is working' },
-                ].map(({ dot, label }) => (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
-                    <span className="text-[10px] text-slate-500">{label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          {processingCount > 0 && (
+            <span className="flex items-center gap-2 text-xs text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Processing {processingCount} file{processingCount > 1 ? 's' : ''}…
+            </span>
+          )}
         </div>
 
         {/* Body */}
 
-        <div className="flex-1 flex overflow-hidden p-6 gap-6">
+        <div className="flex-1 flex overflow-hidden p-8 gap-8">
 
           {/* LEFT: Resources */}
 
-          <section className="w-[40%] flex flex-col">
+          <section className="w-[42%] flex flex-col">
 
-            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-5 flex flex-col h-full">
+            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col h-full">
 
-              <div className="flex items-center gap-2 mb-6 shrink-0">
+              <div className="flex items-center gap-2 mb-8 shrink-0">
 
                 <Layers size={18} className="text-[#00e5a0]" />
 
@@ -1326,15 +1322,24 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                     <div className="shrink-0">
 
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Module Label</label>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Module Label <span className="text-rose-400">*</span>
+                      </label>
 
-                      <input type="text" value={weekName} onChange={e => setWeekName(e.target.value)}
+                      <input type="text" value={weekName} onChange={e => { setWeekName(e.target.value); setUploadError(''); }}
 
                         placeholder="e.g. Week 4: C++ Pointers"
 
-                        className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                        className={cn(
+                          'w-full bg-[#0f1623] border rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 outline-none transition-all placeholder:text-slate-600',
+                          weekName.trim() ? 'border-slate-800 focus:ring-[#00e5a0]' : 'border-rose-500/60 focus:ring-rose-500'
+                        )}
 
                       />
+
+                      {!weekName.trim() && (
+                        <p className="text-[10px] text-rose-400 mt-1">Required — enter a module label first.</p>
+                      )}
 
                     </div>
 
@@ -1426,13 +1431,18 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                       <div className="flex-1">
 
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Module (opsiyonel)</label>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Module <span className="text-rose-400">*</span>
+                        </label>
 
                         <input type="text" value={linkWeekName} onChange={e => setLinkWeekName(e.target.value)}
 
                           placeholder="Week 3"
 
-                          className="w-full bg-[#0f1623] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600"
+                          className={cn(
+                            'w-full bg-[#0f1623] border rounded-xl px-3 py-2.5 text-xs text-white focus:ring-1 outline-none transition-all placeholder:text-slate-600',
+                            linkWeekName.trim() ? 'border-slate-800 focus:ring-[#00e5a0]' : 'border-rose-500/60 focus:ring-rose-500'
+                          )}
 
                         />
 
@@ -1444,7 +1454,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                     {linkSuccess && <div className="text-[10px] text-emerald-400 bg-emerald-500/10 rounded-lg px-3 py-2 flex items-center gap-1"><Check size={12}/>{linkSuccess}</div>}
 
-                    <button onClick={handleAddLink} disabled={linkAdding || !linkUrl.trim() || !linkTitle.trim()}
+                    <button onClick={handleAddLink} disabled={linkAdding || !linkUrl.trim() || !linkTitle.trim() || !linkWeekName.trim()}
 
                       className="w-full py-3 bg-[#00e5a0]/10 hover:bg-[#00e5a0]/20 border border-[#00e5a0]/30 text-[#00e5a0] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-40">
 
@@ -1456,7 +1466,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                 )}
 
-                <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+                <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
 
                   {files.length === 0 && <p className="text-[11px] text-slate-600 text-center pt-6">No resources yet. Upload a PDF veya link ekle.</p>}
 
@@ -1618,9 +1628,9 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
           <section className="flex-1 flex flex-col">
 
-            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-5 flex flex-col h-full">
+            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col h-full">
 
-              <div className="flex items-center justify-between mb-6 shrink-0">
+              <div className="flex items-center justify-between mb-8 shrink-0">
 
                 <div className="flex items-center gap-2">
 
@@ -1648,7 +1658,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                   <button key={tab} onClick={() => setActiveTab(tab)}
 
-                    className={cn('flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all',
+                    className={cn('flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
 
                       activeTab === tab ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300')}>
 
@@ -1666,7 +1676,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
+              <div className="flex-1 overflow-y-auto space-y-4 min-h-0 pr-1">
 
                 {contentLoading && (
 

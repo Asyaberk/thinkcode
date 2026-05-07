@@ -1,3 +1,0 @@
-# Test Upload
-This is a test file to verify the upload-without-auto-extraction behavior.
-After this upload, status should be 'uploaded', not 'processing'.

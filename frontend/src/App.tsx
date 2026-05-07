@@ -255,6 +255,8 @@ export default function App() {
 
     localStorage.setItem(STORAGE_KEY, deployedClassId);
 
+    setInstructorView('overview');
+
     setCurrentPage('instructor-dashboard');
 
   };
