@@ -236,15 +236,19 @@ export async function processResource(
 
   classId?: string,
 
+  instructorPrompt?: string,
+
 ): Promise<{ resource_id: string; status: string; message: string }> {
 
-  const url = classId
+  const params = new URLSearchParams();
 
-    ? `${BASE_URL}/resources/${resourceId}/process?class_id=${classId}`
+  if (classId?.trim()) params.set('class_id', classId.trim());
 
-    : `${BASE_URL}/resources/${resourceId}/process`;
+  if (instructorPrompt?.trim()) params.set('instructor_prompt', instructorPrompt.trim());
 
-  const res = await fetch(url, {
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`${BASE_URL}/resources/${resourceId}/process${qs}`, {
 
     method: 'POST', headers: jsonHeaders(),
 
@@ -586,3 +590,51 @@ export async function getTopicResources(topicId: string): Promise<TopicResource[
 
 }
 
+
+// ── AI Content Chat ───────────────────────────────────────────────────────────
+
+export interface ContentChatResponse {
+  summary: string;
+  actions_executed: {
+    type: string;
+    created?: number;
+    ids?: string[];
+    topic_id?: string;
+    lesson_id?: string;
+    error?: string;
+  }[];
+}
+
+export async function sendContentChat(
+  message: string,
+  classId: string,
+): Promise<ContentChatResponse> {
+  const res = await fetch(`${BASE_URL}/content/chat`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ message, class_id: classId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Chat failed: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Resource → Topics (generated content preview) ────────────────────────────
+
+export interface ResourceTopic {
+  id: string;
+  name: string;
+  description: string;
+  lesson_count: number;
+  problem_count: number;
+}
+
+export async function getResourceTopics(resourceId: string): Promise<ResourceTopic[]> {
+  const res = await fetch(`${BASE_URL}/resources/${resourceId}/topics`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) return [];
+  return res.json();
+}

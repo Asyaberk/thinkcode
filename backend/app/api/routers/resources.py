@@ -135,6 +135,7 @@ def process_resource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     class_id: Optional[str] = None,
+    instructor_prompt: Optional[str] = None,
 ):
     """
     Trigger AI processing of an uploaded resource in the background:
@@ -174,6 +175,7 @@ def process_resource(
         filename=resource.filename,
         week_name=resource.week_name,
         class_id=class_id or resource.class_id,
+        instructor_prompt=instructor_prompt or "",
     )
 
     return {
@@ -255,6 +257,49 @@ def list_resources(
         }
         for r in resources
     ]
+
+
+# ─── Resource → Topics lookup ─────────────────────────────────────────────────
+
+@router.get("/{resource_id}/topics", summary="Get topics generated from a specific resource")
+def get_topics_by_resource(
+    resource_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return all topics (with lesson + problem counts) that were generated
+    from the given resource via AI extraction (Topic.source_resource_id).
+    """
+    from app.db.models import Topic, Lesson, Problem
+
+    resource = db.query(CourseResource).filter(
+        CourseResource.id == resource_id,
+        CourseResource.instructor_id == current_user.id,
+    ).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found.")
+
+    topics = (
+        db.query(Topic)
+        .filter(Topic.source_resource_id == resource_id)
+        .order_by(Topic.display_order)
+        .all()
+    )
+
+    result = []
+    for t in topics:
+        lesson_count  = db.query(Lesson).filter(Lesson.topic_id == t.id).count()
+        problem_count = db.query(Problem).filter(Problem.topic_id == t.id).count()
+        result.append({
+            "id":            t.id,
+            "name":          t.name,
+            "description":   t.description or "",
+            "lesson_count":  lesson_count,
+            "problem_count": problem_count,
+        })
+
+    return result
 
 
 # ─── Delete ──────────────────────────────────────────────────────────────────
@@ -453,13 +498,14 @@ def _process_resource_task(
     filename: str,
     week_name: Optional[str] = None,
     class_id: Optional[str] = None,
+    instructor_prompt: str = "",
 ) -> None:
     """
     Background task: fetch file bytes from MinIO, run AI extraction, persist results.
     Runs in a separate thread; creates its own DB session.
     """
     from app.db.session import SessionLocal
-    from openai import OpenAI
+    from app.ai.content_extractor import extract_content_from_markdown, make_llm_client
     from app.storage.minio_client import _client
     import io
 
@@ -486,16 +532,17 @@ def _process_resource_task(
         resource.updated_at   = datetime.now(timezone.utc)
         db.commit()
 
-        logger.info(f"[{resource_id}] GPT extraction starting…")
+        logger.info(f"[{resource_id}] LLM extraction starting…")
 
-        openai_client = OpenAI()
+        llm_client = make_llm_client()
         result = extract_content_from_markdown(
             markdown_text=markdown_text,
             resource_id=resource_id,
             db=db,
-            openai_client=openai_client,
+            openai_client=llm_client,
             week_name=week_name,
             class_id=class_id,
+            instructor_prompt=instructor_prompt,
         )
 
         resource.status        = "done"

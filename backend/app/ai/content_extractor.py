@@ -36,9 +36,20 @@ from app.db.models import (
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_MODEL = "gpt-4.1-nano"
+OPENAI_EXTRACTION_MODEL = "gpt-4.1-nano"
 
 MAX_TEXT_CHARS = 200_000
+
+
+def make_llm_client() -> OpenAI:
+    """Return an OpenAI-compatible client. Extend this to support local LLMs."""
+    return OpenAI()
+
+
+def get_extraction_model() -> str:
+    """Return the model name to use for content extraction."""
+    return OPENAI_EXTRACTION_MODEL
+
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -56,11 +67,13 @@ def extract_content_from_markdown(
 
     class_id: Optional[str] = None,
 
+    instructor_prompt: str = "",
+
 ) -> dict:
 
     if not openai_client:
 
-        openai_client = OpenAI()
+        openai_client = make_llm_client()
 
     if len(markdown_text) > MAX_TEXT_CHARS:
 
@@ -84,7 +97,7 @@ def extract_content_from_markdown(
 
         )
 
-    extracted_json = _call_gpt_extraction(markdown_text, openai_client, existing_topics)
+    extracted_json = _call_gpt_extraction(markdown_text, openai_client, existing_topics, instructor_prompt)
 
     counts = _save_to_database(
 
@@ -114,7 +127,7 @@ def extract_content_from_markdown(
 
         problems_created=counts["problems_created"],
 
-        model_used=EXTRACTION_MODEL,
+        model_used=get_extraction_model(),
 
         created_at=datetime.now(timezone.utc),
 
@@ -149,6 +162,8 @@ def _call_gpt_extraction(
     client: OpenAI,
 
     existing_topics: List[Topic],
+
+    instructor_prompt: str = "",
 
 ) -> dict:
 
@@ -190,11 +205,17 @@ def _call_gpt_extraction(
 
         )
 
+    instructor_block = (
+        f"\n\n== INSTRUCTOR CUSTOM INSTRUCTIONS ==\n"
+        f"The instructor has provided these specific requirements. Follow them strictly:\n"
+        f"{instructor_prompt.strip()}"
+    ) if instructor_prompt.strip() else ""
+
     system_prompt = f"""You are an expert CS professor and curriculum designer.
 
 You will receive the COMPLETE text of a university CS course lecture document (slides, notes, or handout).
 
-{existing_block}
+{existing_block}{instructor_block}
 
 == STEP 1: HOLISTIC ANALYSIS ==
 
@@ -332,7 +353,7 @@ Return ONLY valid JSON:
 
     response = client.chat.completions.create(
 
-        model=EXTRACTION_MODEL,
+        model=get_extraction_model(),
 
         messages=[
 

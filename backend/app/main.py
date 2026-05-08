@@ -11,6 +11,7 @@ from app.api.routers import (
     auth, topics, problems, submissions, analytics,
     instructor, tutor, lessons, resources, flows, classes,
 )
+from app.api.routers import content_chat
 
 _TAGS_METADATA = [
     {
@@ -57,6 +58,10 @@ _TAGS_METADATA = [
         "name": "flows",
         "description": "Pedagogical flow designer: create, update, deploy, and query adaptive learning flows (Socratic retry, mastery gate, spaced retrieval, adaptive branch).",
     },
+    {
+        "name": "Content Chat",
+        "description": "AI-assisted content editing chat. Instructors can send free-form messages to generate questions, create topics, or rewrite lessons.",
+    },
 ]
 
 app = FastAPI(
@@ -99,9 +104,10 @@ app.include_router(analytics.router,   prefix=PREFIX)
 app.include_router(instructor.router,  prefix=PREFIX)
 app.include_router(tutor.router,       prefix=PREFIX)
 app.include_router(lessons.router,     prefix=PREFIX)
-app.include_router(resources.router,   prefix=PREFIX)  # PDF upload + AI extraction
-app.include_router(flows.router,       prefix=PREFIX)  # Pedagogical flow designer
-app.include_router(classes.router,     prefix=PREFIX)  # Class & enrollment management
+app.include_router(resources.router,     prefix=PREFIX)  # PDF upload + AI extraction
+app.include_router(flows.router,         prefix=PREFIX)  # Pedagogical flow designer
+app.include_router(classes.router,       prefix=PREFIX)  # Class & enrollment management
+app.include_router(content_chat.router,  prefix=PREFIX)  # AI content chat
 
 
 @app.get("/health")

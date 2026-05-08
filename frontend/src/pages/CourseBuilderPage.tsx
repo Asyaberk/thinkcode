@@ -10,7 +10,9 @@ import {
 
   AlertCircle, Loader2, X, BookOpen, HelpCircle, CheckCircle2,
 
-  Circle, Clock, Link, Globe, ExternalLink
+  Circle, Clock, Link, Globe, ExternalLink, MessageSquare, Bot,
+
+  GitBranch, ChevronDown, ChevronRight, BookMarked,
 
 } from 'lucide-react';
 
@@ -36,7 +38,9 @@ import {
 
   createTopic, createLesson, createProblem,
 
-  ResourceItem, DbTopic, DbLesson, DbProblem,
+  sendContentChat, getResourceTopics,
+
+  ResourceItem, DbTopic, DbLesson, DbProblem, ContentChatResponse, ResourceTopic,
 
 } from '../api/resources';
 
@@ -76,7 +80,7 @@ interface CourseBuilderPageProps {
   onAnalyticsViewChange?: (view: string) => void;
 }
 
-type Tab = 'Topics' | 'Lessons' | 'Questions';
+type Tab = 'Topics' | 'Lessons' | 'Questions' | 'AI Chat';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -850,6 +854,27 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   const [linkSuccess, setLinkSuccess] = useState('');
 
+  // Instructor custom prompt & AI chat
+
+  const [instructorPrompt, setInstructorPrompt] = useState('');
+
+  const [showPromptBox, setShowPromptBox] = useState(false);
+
+  type ChatMsg = { role: 'user' | 'assistant'; content: string; loading?: boolean };
+
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+
+  const [chatInput, setChatInput] = useState('');
+
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Resource topic expand
+  const [expandedResourceId, setExpandedResourceId] = useState<string | null>(null);
+  const [resourceTopicsCache, setResourceTopicsCache] = useState<Record<string, ResourceTopic[]>>({});
+  const [resourceTopicsLoading, setResourceTopicsLoading] = useState<string | null>(null);
+
   // Content
 
   const [topics, setTopics] = useState<DbTopic[]>([]);
@@ -1094,7 +1119,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
       try {
 
-        await processResource(f.resource_id, selectedClassId || undefined);
+        await processResource(f.resource_id, selectedClassId || undefined, instructorPrompt || undefined);
 
         setFiles(prev => prev.map(r => r.resource_id === f.resource_id ? { ...r, status: 'processing' } : r));
 
@@ -1106,6 +1131,76 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
     setIsExtracting(false);
 
+  };
+
+  // ── AI Chat ─────────────────────────────────────────────────────────────────
+
+  const handleChat = async () => {
+
+    const msg = chatInput.trim();
+
+    if (!msg || !selectedClassId) return;
+
+    setChatInput('');
+
+    setChatMessages(prev => [...prev, { role: 'user', content: msg }, { role: 'assistant', content: '', loading: true }]);
+
+    setChatLoading(true);
+
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+
+    try {
+
+      const res = await sendContentChat(msg, selectedClassId);
+
+      setChatMessages(prev => [
+
+        ...prev.slice(0, -1),
+
+        { role: 'assistant', content: res.summary },
+
+      ]);
+
+      // Refresh content after AI changes
+
+      await loadAllContent();
+
+    } catch (e: any) {
+
+      setChatMessages(prev => [
+
+        ...prev.slice(0, -1),
+
+        { role: 'assistant', content: `❌ Error: ${e.message}` },
+
+      ]);
+
+    } finally {
+
+      setChatLoading(false);
+
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+
+    }
+
+  };
+
+  // ── Resource topic expand ────────────────────────────────────────────────
+
+  const handleExpandResource = async (resourceId: string) => {
+    if (expandedResourceId === resourceId) {
+      setExpandedResourceId(null);
+      return;
+    }
+    setExpandedResourceId(resourceId);
+    if (resourceTopicsCache[resourceId]) return; // already cached
+    setResourceTopicsLoading(resourceId);
+    try {
+      const topics = await getResourceTopics(resourceId);
+      setResourceTopicsCache(prev => ({ ...prev, [resourceId]: topics }));
+    } catch { /* ignore */ } finally {
+      setResourceTopicsLoading(null);
+    }
   };
 
   // ── Delete ───────────────────────────────────────────────────────────────
@@ -1138,13 +1233,20 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   const uploadPendingCount = files.filter(f => f.status === 'uploaded').length;
 
-  const StatusBadge = ({ status }: { status: ResourceItem['status'] }) => {
+  const StatusBadge = ({ status, errorMessage }: { status: ResourceItem['status']; errorMessage?: string | null }) => {
 
     if (status === 'processing') return <span className="flex items-center gap-1 text-[9px] font-bold text-amber-500"><Loader2 size={10} className="animate-spin" /> Processing...</span>;
 
     if (status === 'done') return <span className="flex items-center gap-1 text-[9px] font-bold text-[#00e5a0]"><Check size={10} /> DONE ✓</span>;
 
-    if (status === 'failed') return <span className="flex items-center gap-1 text-[9px] font-bold text-red-500"><AlertCircle size={10} /> Error ✗</span>;
+    if (status === 'failed') return (
+      <span
+        className="flex items-center gap-1 text-[9px] font-bold text-red-500 cursor-help"
+        title={errorMessage || 'Extraction failed'}
+      >
+        <AlertCircle size={10} /> Failed
+      </span>
+    );
 
     return <span className="flex items-center gap-1 text-[9px] font-bold text-slate-400"><Check size={10} /> Uploaded</span>;
 
@@ -1162,7 +1264,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   return (
 
-    <div className="flex h-[calc(100vh-180px)] bg-[#0f1623] text-slate-200 overflow-hidden font-sans">
+    <div className="flex min-h-screen bg-[#0f1623] text-slate-200 font-sans">
 
       {/* Modals */}
 
@@ -1237,42 +1339,68 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
         courseName={courseName}
       />
 
-      <main className="flex-1 overflow-hidden ml-72 flex flex-col">
+      <main className="flex-1 ml-72 flex flex-col overflow-y-auto">
 
         {/* Header */}
 
-        <div className="px-8 py-5 border-b border-slate-800 bg-[#0f1623] shrink-0 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Course Builder</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Upload materials on the left — AI extracts topics, lessons & questions on the right.</p>
+        <div className="px-8 py-5 border-b border-slate-800 bg-[#0f1623] shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Course Builder</h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Upload PDFs, let AI extract structured content, then refine with chat.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {processingCount > 0 && (
+                <span className="flex items-center gap-2 text-xs text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Processing {processingCount} file{processingCount > 1 ? 's' : ''}…
+                </span>
+              )}
+              {/* Step banner */}
+              <div className="hidden lg:flex items-center gap-2 bg-[#0d1526] border border-slate-800 rounded-2xl px-4 py-2.5">
+                {[
+                  { icon: <Upload size={12} />, label: 'Upload PDF' },
+                  { icon: <Sparkles size={12} />, label: 'Extract' },
+                  { icon: <Bot size={12} />, label: 'Refine with AI' },
+                ].map((step, i) => (
+                  <React.Fragment key={i}>
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                      <span className="text-[#00e5a0]">{step.icon}</span>
+                      {step.label}
+                    </div>
+                    {i < 2 && <ChevronRight size={12} className="text-slate-700" />}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
           </div>
-          {processingCount > 0 && (
-            <span className="flex items-center gap-2 text-xs text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Processing {processingCount} file{processingCount > 1 ? 's' : ''}…
-            </span>
-          )}
         </div>
 
         {/* Body */}
 
-        <div className="flex-1 flex overflow-hidden p-8 gap-8">
+        <div className="flex px-6 py-6 gap-6 items-start">
 
           {/* LEFT: Resources */}
 
-          <section className="w-[42%] flex flex-col">
+          <section className="w-[38%] flex flex-col min-w-0 sticky top-0 self-start">
 
-            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col h-full">
+            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col gap-5">
 
-              <div className="flex items-center gap-2 mb-8 shrink-0">
-
-                <Layers size={18} className="text-[#00e5a0]" />
-
-                <h2 className="text-sm font-bold text-white uppercase tracking-wider">Resources</h2>
-
+              <div className="flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#00e5a0]/10 flex items-center justify-center">
+                    <Layers size={14} className="text-[#00e5a0]" />
+                  </div>
+                  <h2 className="text-sm font-bold text-white tracking-wide">Resources</h2>
+                </div>
+                {files.length > 0 && (
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-800 px-2.5 py-1 rounded-full">{files.length} file{files.length > 1 ? 's' : ''}</span>
+                )}
               </div>
 
-              <div className="flex flex-col flex-1 min-h-0 space-y-4">
+              <div className="flex flex-col gap-4">
 
                 {/* Tab selector */}
 
@@ -1319,55 +1447,40 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
                 {uploadTab === 'file' ? (
 
                   <>
-
+                    {/* Module Label — ABOVE upload zone */}
                     <div className="shrink-0">
-
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
                         Module Label <span className="text-rose-400">*</span>
                       </label>
-
                       <input type="text" value={weekName} onChange={e => { setWeekName(e.target.value); setUploadError(''); }}
-
-                        placeholder="e.g. Week 4: C++ Pointers"
-
+                        placeholder="e.g. Week 4 — Pointers & Memory"
                         className={cn(
                           'w-full bg-[#0f1623] border rounded-xl px-4 py-2.5 text-xs text-white focus:ring-1 outline-none transition-all placeholder:text-slate-600',
-                          weekName.trim() ? 'border-slate-800 focus:ring-[#00e5a0]' : 'border-rose-500/60 focus:ring-rose-500'
+                          weekName.trim() ? 'border-slate-700 focus:ring-[#00e5a0]' : 'border-rose-500/50 focus:ring-rose-500'
                         )}
-
                       />
-
                       {!weekName.trim() && (
-                        <p className="text-[10px] text-rose-400 mt-1">Required — enter a module label first.</p>
+                        <p className="text-[9px] text-rose-400/80 mt-1 flex items-center gap-1">
+                          <AlertCircle size={9} /> Required before uploading
+                        </p>
                       )}
-
                     </div>
 
+                    {/* Upload drop zone */}
                     <label htmlFor="cb-file-upload" className={cn(
-
-                      'border-2 border-dashed border-slate-800 rounded-2xl p-6 text-center',
-
-                      'hover:border-[#00e5a0]/50 transition-all group cursor-pointer bg-[#0f1623]/50 shrink-0',
-
+                      'border-2 border-dashed rounded-2xl py-6 text-center block',
+                      'hover:border-[#00e5a0]/60 transition-all group cursor-pointer bg-[#0f1623]/60 shrink-0',
+                      weekName.trim() ? 'border-slate-700' : 'border-slate-800 opacity-60 pointer-events-none',
                       uploading && 'opacity-60 pointer-events-none'
-
                     )}>
-
                       <input id="cb-file-upload" ref={fileInputRef} type="file"
-
                         accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.cpp,.h,.py"
-
                         className="hidden" onChange={handleFileChange} disabled={uploading} />
-
-                      <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3 text-slate-500 group-hover:text-[#00e5a0] transition-colors">
-
-                        {uploading ? <Loader2 size={24} className="animate-spin text-[#00e5a0]" /> : <Upload size={24} />}
-
+                      <div className="w-10 h-10 bg-slate-800 group-hover:bg-[#00e5a0]/10 rounded-xl flex items-center justify-center mx-auto mb-2.5 text-slate-500 group-hover:text-[#00e5a0] transition-all">
+                        {uploading ? <Loader2 size={20} className="animate-spin text-[#00e5a0]" /> : <Upload size={20} />}
                       </div>
-
-                      <p className="text-xs font-bold text-white mb-1">{uploading ? 'Uploading & processing…' : 'Upload Materials'}</p>
-
-                      <p className="text-[10px] text-slate-500">PDF, MD, TXT, PNG, JPG, CPP</p>
+                      <p className="text-xs font-semibold text-white mb-1">{uploading ? 'Uploading…' : 'Drop file or click to upload'}</p>
+                      <p className="text-[10px] text-slate-600">PDF, MD, TXT, PNG, CPP</p>
 
                     </label>
 
@@ -1466,7 +1579,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                 )}
 
-                <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
+                <div className="space-y-3">
 
                   {files.length === 0 && <p className="text-[11px] text-slate-600 text-center pt-6">No resources yet. Upload a PDF veya link ekle.</p>}
 
@@ -1516,11 +1629,23 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                                 <div className="flex items-center gap-2 mt-0.5">
 
-                                  <StatusBadge status={file.status} />
+                                  <StatusBadge status={file.status} errorMessage={file.error_message} />
 
                                   {!file.week_name && <span className="text-[9px] text-slate-700">no module</span>}
 
                                 </div>
+
+                                {/* Error detail row for failed resources */}
+                                {file.status === 'failed' && file.error_message && (
+                                  <div className="flex items-start gap-1 mt-1.5 bg-red-500/5 border border-red-500/20 rounded-lg px-2 py-1.5 max-w-[200px]">
+                                    <AlertCircle size={9} className="text-red-400 shrink-0 mt-0.5" />
+                                    <p className="text-[9px] text-red-400 leading-relaxed">
+                                      {file.error_message.length > 80
+                                        ? file.error_message.slice(0, 80) + '…'
+                                        : file.error_message}
+                                    </p>
+                                  </div>
+                                )}
 
                               </div>
 
@@ -1592,6 +1717,53 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                           </div>
 
+                          {/* Topic expand panel — only for done resources */}
+                          {file.status === 'done' && (
+                            <div>
+                              <button
+                                onClick={() => handleExpandResource(file.resource_id)}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold text-slate-600 hover:text-[#00e5a0] transition-colors"
+                              >
+                                {expandedResourceId === file.resource_id
+                                  ? <ChevronDown size={11} />
+                                  : <ChevronRight size={11} />
+                                }
+                                {resourceTopicsLoading === file.resource_id
+                                  ? 'Loading...'
+                                  : expandedResourceId === file.resource_id
+                                  ? 'Hide generated content'
+                                  : 'Show generated content'
+                                }
+                              </button>
+
+                              {expandedResourceId === file.resource_id && (
+                                <div className="mx-1 mb-2 bg-[#0d1526] border border-slate-800 rounded-xl p-3 space-y-2">
+                                  {resourceTopicsLoading === file.resource_id ? (
+                                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                      <Loader2 size={11} className="animate-spin" /> Loading…
+                                    </div>
+                                  ) : (resourceTopicsCache[file.resource_id] ?? []).length === 0 ? (
+                                    <p className="text-[10px] text-slate-600 italic">No topics linked to this resource yet.</p>
+                                  ) : (
+                                    (resourceTopicsCache[file.resource_id] ?? []).map(t => (
+                                      <div key={t.id} className="flex items-start gap-2">
+                                        <div className="w-5 h-5 rounded-md bg-[#00e5a0]/10 flex items-center justify-center shrink-0 mt-0.5">
+                                          <BookMarked size={10} className="text-[#00e5a0]" />
+                                        </div>
+                                        <div>
+                                          <p className="text-[11px] font-bold text-slate-300">{t.name}</p>
+                                          <p className="text-[9px] text-slate-600">
+                                            {t.lesson_count} lesson{t.lesson_count !== 1 ? 's' : ''} · {t.problem_count} question{t.problem_count !== 1 ? 's' : ''}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                         </div>
 
                       );
@@ -1602,17 +1774,49 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                 </div>
 
+                {/* Custom Instruction */}
+
+                <div className="shrink-0">
+
+                  <button
+                    onClick={() => setShowPromptBox(p => !p)}
+                    className="flex items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-[#00e5a0] transition-colors mb-2"
+                  >
+                    <Sparkles size={12} className={showPromptBox ? 'text-[#00e5a0]' : ''} />
+                    Custom AI Instructions {showPromptBox ? '▲' : '▼'}
+                  </button>
+
+                  {showPromptBox && (
+                    <div className="mb-2">
+                      <textarea
+                        value={instructorPrompt}
+                        onChange={e => setInstructorPrompt(e.target.value)}
+                        placeholder="e.g. Make explanations concise, add more C++ examples, use formal academic tone..."
+                        rows={3}
+                        className="w-full bg-[#0f1623] border border-[#00e5a0]/30 rounded-xl px-4 py-3 text-xs text-white focus:ring-1 focus:ring-[#00e5a0] outline-none transition-all placeholder:text-slate-600 resize-none"
+                      />
+                      <p className="text-[9px] text-slate-600 mt-1">These instructions guide the AI when extracting content from your PDFs.</p>
+                    </div>
+                  )}
+
+                </div>
+
                 <button onClick={handleExtract} disabled={isExtracting || uploadPendingCount === 0}
 
-                  className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 shrink-0">
+                  className="w-full py-3.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 shrink-0 relative overflow-hidden"
+                  style={{
+                    background: (isExtracting || uploadPendingCount === 0) ? '#1e2d3d' : 'linear-gradient(135deg, #00e5a0 0%, #00b8a9 100%)',
+                    color: (isExtracting || uploadPendingCount === 0) ? '#4a5568' : '#0a0f1a',
+                    boxShadow: (isExtracting || uploadPendingCount === 0) ? 'none' : '0 0 24px rgba(0,229,160,0.25)',
+                  }}>
 
                   {isExtracting
 
                     ? <><Loader2 size={16} className="animate-spin" /> Sending to AI…</>
 
-                    : <> Extract Content <ArrowRight size={16} className="text-[#00e5a0]" />
+                    : <> <Sparkles size={14} /> Extract Content
 
-                        {uploadPendingCount > 0 && <span className="bg-[#00e5a0]/20 text-[#00e5a0] text-[9px] font-black px-1.5 py-0.5 rounded">{uploadPendingCount}</span>}
+                        {uploadPendingCount > 0 && <span className="bg-black/20 text-xs font-black px-2 py-0.5 rounded-full">{uploadPendingCount}</span>}
 
                       </>}
 
@@ -1628,47 +1832,54 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
           <section className="flex-1 flex flex-col">
 
-            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col h-full">
+            <div className="bg-[#1a2235] rounded-2xl border border-slate-800 p-6 flex flex-col gap-5">
 
-              <div className="flex items-center justify-between mb-8 shrink-0">
+              <div className="flex items-center justify-between mb-5 shrink-0">
 
                 <div className="flex items-center gap-2">
-
-                  <Sparkles size={18} className="text-[#00e5a0]" />
-
-                  <h2 className="text-sm font-bold text-white uppercase tracking-wider">AI Content</h2>
-
+                  <div className="w-7 h-7 rounded-lg bg-[#00e5a0]/10 flex items-center justify-center">
+                    <Sparkles size={14} className="text-[#00e5a0]" />
+                  </div>
+                  <h2 className="text-sm font-bold text-white tracking-wide">AI Content</h2>
                 </div>
 
-                <button onClick={async () => { setIsRegenerating(true); await loadAllContent(); setIsRegenerating(false); }}
-
-                  disabled={isRegenerating}
-
-                  className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-[#00e5a0] transition-all disabled:opacity-50">
-
-                  {isRegenerating ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={async () => { setIsRegenerating(true); await loadAllContent(); setIsRegenerating(false); }}
+                    disabled={isRegenerating}
+                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-[#00e5a0] transition-all disabled:opacity-50">
+                    {isRegenerating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  </button>
+                  <button onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00e5a0]/10 hover:bg-[#00e5a0]/20 border border-[#00e5a0]/30 text-[#00e5a0] rounded-lg text-[10px] font-bold transition-all">
+                    <Plus size={12} /> Add
+                  </button>
+                </div>
 
               </div>
 
-              <div className="flex p-1 bg-[#0f1623] rounded-xl mb-6 shrink-0">
+              <div className="flex p-1 bg-[#0f1623] rounded-xl mb-4 shrink-0">
 
-                {(['Topics', 'Lessons', 'Questions'] as Tab[]).map(tab => (
+                {(['Topics', 'Lessons', 'Questions', 'AI Chat'] as Tab[]).map(tab => (
 
                   <button key={tab} onClick={() => setActiveTab(tab)}
 
-                    className={cn('flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
+                    className={cn('flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-1',
 
-                      activeTab === tab ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300')}>
+                      activeTab === tab && tab === 'AI Chat'
+                        ? 'bg-gradient-to-r from-[#00e5a0]/20 to-[#00b8a9]/20 text-[#00e5a0] border border-[#00e5a0]/20'
+                        : activeTab === tab
+                        ? 'bg-slate-800 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-300')}>
 
-                    {tab}
+                    {tab === 'AI Chat' && <Bot size={10} />}
 
-                    <span className="ml-1.5 text-[8px] font-black opacity-60">
+                    {tab === 'AI Chat' ? 'AI' : tab}
 
-                      {tab === 'Topics' ? topics.length : tab === 'Lessons' ? lessons.length : problems.length}
-
-                    </span>
+                    {tab !== 'AI Chat' && (
+                      <span className={cn('ml-1 text-[8px] font-black', activeTab === tab ? 'opacity-80' : 'opacity-40')}>
+                        {tab === 'Topics' ? topics.length : tab === 'Lessons' ? lessons.length : problems.length}
+                      </span>
+                    )}
 
                   </button>
 
@@ -1676,7 +1887,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-4 min-h-0 pr-1">
+              <div className="space-y-4" style={{scrollbarWidth:'thin',scrollbarColor:'#1e2d3d transparent'}}>
 
                 {contentLoading && (
 
@@ -1744,35 +1955,161 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
                 )}
 
-                <button onClick={() => setShowAddModal(true)}
+                {activeTab === 'AI Chat' && (
 
-                  className="w-full py-3 border border-dashed border-slate-800 rounded-xl text-[10px] font-bold text-slate-500 hover:text-[#00e5a0] hover:border-[#00e5a0]/50 transition-all flex items-center justify-center gap-2">
+                  <div className="flex flex-col">
 
-                  <Plus size={14} /> + Add {activeTab.slice(0, -1)} manually
+                    {/* Quick action chips */}
 
-                </button>
+                    {chatMessages.length === 0 && (
 
-              </div>
+                      <div className="mb-4">
 
-              <div className="mt-6 pt-4 border-t border-slate-800 flex items-center gap-5 shrink-0">
+                        <p className="text-[10px] text-slate-500 mb-3 font-bold uppercase tracking-widest">Quick actions</p>
 
-                {[['Topics', topics.length], ['Lessons', lessons.length], ['Questions', problems.length]].map(([label, count]) => (
+                        <div className="flex flex-wrap gap-2">
 
-                  <div key={label} className="text-center">
+                          {[
+                            'Write 3 hard questions about the first topic',
+                            'Create a new topic on recursion with a full lesson',
+                            'Rewrite the first lesson more concisely',
+                            'Add 5 easy multiple-choice questions about sorting',
+                          ].map(chip => (
+                            <button
+                              key={chip}
+                              onClick={() => setChatInput(chip)}
+                              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors border border-slate-700 hover:border-[#00e5a0]/40"
+                            >
+                              {chip}
+                            </button>
+                          ))}
 
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
+                        </div>
 
-                    <p className="text-sm font-bold text-white">{count}</p>
+                      </div>
+
+                    )}
+
+                    {/* Chat messages */}
+
+                    <div className="space-y-3 mb-4 max-h-[400px] overflow-y-auto pr-1" style={{scrollbarWidth:'thin',scrollbarColor:'#1e2d3d transparent'}}>
+
+                      {chatMessages.map((msg, i) => (
+
+                        <div key={i} className={cn('flex gap-2.5', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+
+                          {msg.role === 'assistant' && (
+                            <div className="w-7 h-7 rounded-full bg-[#00e5a0]/10 flex items-center justify-center shrink-0 mt-0.5">
+                              <Bot size={14} className="text-[#00e5a0]" />
+                            </div>
+                          )}
+
+                          <div className={cn(
+                            'max-w-[80%] rounded-2xl px-4 py-3 text-xs leading-relaxed',
+                            msg.role === 'user'
+                              ? 'bg-[#00e5a0]/10 text-white rounded-br-sm'
+                              : 'bg-slate-800 text-slate-200 rounded-bl-sm'
+                          )}>
+                            {msg.loading
+                              ? <span className="flex items-center gap-2"><Loader2 size={12} className="animate-spin text-[#00e5a0]" /> Thinking…</span>
+                              : msg.content
+                            }
+                          </div>
+
+                          {msg.role === 'user' && (
+                            <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                              <span className="text-[10px] font-bold text-slate-300">You</span>
+                            </div>
+                          )}
+
+                        </div>
+
+                      ))}
+
+                      <div ref={chatEndRef} />
+
+                    </div>
+
+                    {/* Chat input */}
+
+                    {!selectedClassId && (
+                      <p className="text-[10px] text-amber-400 text-center mb-2">Select a class to use AI Chat</p>
+                    )}
+
+                    <div className="flex gap-2 shrink-0">
+
+                      <textarea
+                        value={chatInput}
+                        onChange={e => setChatInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
+                        placeholder="e.g. Write 5 hard questions about binary trees…"
+                        rows={2}
+                        disabled={chatLoading || !selectedClassId}
+                        className="flex-1 bg-[#0f1623] border border-slate-800 focus:border-[#00e5a0]/50 rounded-xl px-4 py-2.5 text-xs text-white outline-none transition-all placeholder:text-slate-600 resize-none disabled:opacity-40"
+                      />
+
+                      <button
+                        onClick={handleChat}
+                        disabled={chatLoading || !chatInput.trim() || !selectedClassId}
+                        className="px-4 bg-[#00e5a0]/10 hover:bg-[#00e5a0]/20 border border-[#00e5a0]/30 text-[#00e5a0] rounded-xl transition-all disabled:opacity-40 flex items-center"
+                      >
+                        {chatLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      </button>
+
+                    </div>
 
                   </div>
 
-                ))}
+                )}
 
-                <div className="ml-auto text-[10px] text-slate-600 italic">
+                {activeTab !== 'AI Chat' && (
+                  <button onClick={() => setShowAddModal(true)}
 
-                  {processingCount > 0 ? `Extracting from ${processingCount} file${processingCount > 1 ? 's' : ''}…` : 'Synced with DB'}
+                    className="w-full mt-2 py-2.5 border border-dashed border-slate-800 hover:border-[#00e5a0]/40 rounded-xl text-[10px] font-bold text-slate-600 hover:text-[#00e5a0] transition-all flex items-center justify-center gap-2">
 
+                    <Plus size={12} /> Add {activeTab === 'Topics' ? 'topic' : activeTab === 'Lessons' ? 'lesson' : 'question'} manually
+
+                  </button>
+                )}
+
+              </div>
+
+              {/* Stats + Flow CTA footer */}
+              <div className="mt-6 pt-5 border-t border-slate-800 space-y-4 shrink-0">
+
+                {/* Stats row */}
+                <div className="flex items-center gap-5">
+                  {[['Topics', topics.length], ['Lessons', lessons.length], ['Questions', problems.length]].map(([label, count]) => (
+                    <div key={label} className="text-center">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
+                      <p className="text-sm font-bold text-white">{count}</p>
+                    </div>
+                  ))}
+                  <div className="ml-auto text-[10px] text-slate-600 italic">
+                    {processingCount > 0 ? `Extracting from ${processingCount} file${processingCount > 1 ? 's' : ''}…` : 'Synced with DB'}
+                  </div>
                 </div>
+
+                {/* Flow Designer CTA */}
+                {onFlowDesignerClick && (
+                  <div className="rounded-2xl border border-slate-800 bg-[#0d1526] p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center shrink-0">
+                      <GitBranch size={18} className="text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-white">Apply a Learning Flow</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                        Design how students progress through this content — Socratic Retry, Mastery Gate & more.
+                      </p>
+                    </div>
+                    <button
+                      onClick={onFlowDesignerClick}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-xl text-[10px] font-bold transition-all"
+                    >
+                      Open <ArrowRight size={11} />
+                    </button>
+                  </div>
+                )}
 
               </div>
 
