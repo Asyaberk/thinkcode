@@ -28,9 +28,15 @@ async function request<T>(
   });
 
   if (response.status === 401) {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    window.location.href = '/';
+    // Only redirect to home if the user already has a stored session (expired token).
+    // On the login page there is no token yet — just let the error propagate so the
+    // form can display "Incorrect email or password."
+    const hasSession = !!localStorage.getItem('access_token');
+    if (hasSession) {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user');
+      window.location.href = '/';
+    }
   }
 
   if (!response.ok) {

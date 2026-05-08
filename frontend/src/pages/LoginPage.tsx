@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogIn, UserPlus, Bot, Terminal, Loader2, GraduationCap, BookOpen, ChevronRight } from 'lucide-react';
+import { LogIn, UserPlus, Bot, Terminal, Loader2, GraduationCap, BookOpen, ChevronRight, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -43,8 +43,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     try {
       await login(email, password);
       onLogin();
-    } catch (err: unknown) {
-      setLocalError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
+    } catch {
+      setLocalError('Incorrect email or password. Please try again.');
     }
   };
 
@@ -142,25 +142,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
                     <input
                       type="email" placeholder="name@example.com" value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      className={inputCls} required autoComplete="email"
+                      onChange={e => { setEmail(e.target.value); setLocalError(null); }}
+                      className={cn(inputCls, displayError ? 'border-red-500/50 focus:ring-red-500' : '')} required autoComplete="email"
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">Password</label>
                     <input
                       type="password" placeholder="••••••••" value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      className={inputCls} required autoComplete="current-password"
+                      onChange={e => { setPassword(e.target.value); setLocalError(null); }}
+                      className={cn(inputCls, displayError ? 'border-red-500/50 focus:ring-red-500' : '')} required autoComplete="current-password"
                     />
                   </div>
 
                   {displayError && (
                     <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-                      className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 font-medium">
-                      {displayError}
+                      className="flex items-start gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+                      <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                      <p className="text-sm text-red-400 font-medium">{displayError}</p>
                     </motion.div>
                   )}
+
 
                   <button
                     type="submit" disabled={isLoading}
