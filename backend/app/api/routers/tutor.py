@@ -27,6 +27,46 @@ from app.ai.dialog_graph import process_dialog_message
 
 router = APIRouter(prefix="/tutor", tags=["tutor"])
 
+
+# ── Session restore ────────────────────────────────────────────────────────────
+
+@router.get("/session/{problem_id}", summary="Retrieve the student's saved conversation history for a problem")
+def get_tutor_session(
+    problem_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the persisted chat messages from the most recent AI Tutor session
+    for the current student on the given problem.
+
+    Used by the frontend to restore conversation state when a student
+    revisits a problem they previously worked on.
+
+    Returns:
+        { messages: [{role, content}, ...], hint_count: int }
+        Empty messages list if no prior session exists.
+    """
+    problem = db.get(Problem, problem_id)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found.")
+
+    session = (
+        db.query(AiTutorSession)
+        .filter_by(student_id=current_user.id, problem_id=problem_id)
+        .order_by(AiTutorSession.started_at.desc())
+        .first()
+    )
+
+    hint_count = db.query(HintRequest).filter_by(
+        student_id=current_user.id, problem_id=problem_id
+    ).count()
+
+    if not session or not session.messages:
+        return {"messages": [], "hint_count": hint_count}
+
+    return {"messages": session.messages, "hint_count": hint_count}
+
 @router.post("/chat", response_model=TutorChatResponse)
 
 def chat_with_tutor(
@@ -86,6 +126,40 @@ def chat_with_tutor(
 
     session_id = f"tutor-{current_user.id}-{problem.id}"
 
+    # ── Fetch course context: topic → lessons → source resource ──────────────
+    # Load the lesson(s) linked to this problem's topic so the AI can ground
+    # its explanations in the actual course material instead of general knowledge.
+    from app.db.models import Topic, Lesson, CourseResource
+
+    topic = db.get(Topic, problem.topic_id) if problem.topic_id else None
+    lesson_context = []
+    resource_info = None
+
+    if topic:
+        lessons = (
+            db.query(Lesson)
+            .filter(Lesson.topic_id == topic.id)
+            .order_by(Lesson.display_order)
+            .limit(3)   # cap at 3 lessons to stay within token budget
+            .all()
+        )
+        for lesson in lessons:
+            lesson_context.append({
+                "title":   lesson.title,
+                "summary": (lesson.summary or "")[:300],
+                # Include first 800 chars of content so AI has real material to cite
+                "content_excerpt": (lesson.content_markdown or "")[:800],
+            })
+
+        # Resolve the source resource (PDF / video) linked to this topic
+        if topic.source_resource_id:
+            resource = db.get(CourseResource, topic.source_resource_id)
+            if resource:
+                resource_info = {
+                    "name":         resource.filename,
+                    "download_url": f"/api/v1/resources/{resource.id}/download",
+                }
+
     # ── Run the dialog graph ─────────────────────────────────────────────────
 
     try:
@@ -105,6 +179,10 @@ def chat_with_tutor(
             hint_level=hint_count,
 
             available_hints=available_hints,
+
+            lesson_context=lesson_context,
+
+            resource_info=resource_info,
 
             session_id=session_id,
 

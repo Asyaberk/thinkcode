@@ -30,23 +30,73 @@ class DialogState(TypedDict):
     problem_title: str
     problem_description: str
     student_code_or_answer: str
-    # Ogrencinin hint seviyeleri (kac kez hint istedi)
+    # Number of hints the student has already received
     hint_level: int
-    # DB'den gelen ipuclari listesi (problem_hints table)
+    # Pre-authored hints from the problem_hints table
     available_hints: List[str]
-    # Hangi node'a gidecegini classify_intent belirler
+    # Intent determined by classify_intent node
     intent: str
+    # Course material context fetched from DB (topic lessons + source resource)
+    lesson_context: List[dict]   # [{title, summary, content_excerpt}, ...]
+    resource_info: dict          # {name, download_url} or {}
 
 
-# ── LLM Factory ───────────────────────────────────────────────────────────────
+# ── Course context builder ────────────────────────────────────────────────────
 
-def get_llm(temperature: float = 0.3):
-    """GPT-4o-mini ile LLM olustur"""
+def _build_course_context_block(lesson_context: list, resource_info: dict) -> str:
+    """
+    Formats lesson summaries and the source resource reference into a concise
+    block that is prepended to every node's system prompt.
+    """
+    if not lesson_context and not resource_info:
+        return ""
+
+    lines = ["\n--- COURSE MATERIAL CONTEXT ---"]
+
+    for lesson in lesson_context:
+        lines.append(f"Lesson: {lesson['title']}")
+        if lesson.get("summary"):
+            lines.append(f"Summary: {lesson['summary']}")
+        if lesson.get("content_excerpt"):
+            lines.append(f"Content excerpt:\n{lesson['content_excerpt']}")
+        lines.append("")
+
+    if resource_info:
+        lines.append(
+            f"Source material: '{resource_info['name']}'\n"
+            f"Students can access it at: {resource_info['download_url']}"
+        )
+
+    lines.append(
+        "\nIMPORTANT: Base your explanations on the course material above. "
+        "When it helps the student, mention the source material by name and "
+        "tell them they can access it via the link above."
+    )
+    lines.append("--- END COURSE MATERIAL CONTEXT ---\n")
+    return "\n".join(lines)
+
+
+# ── LLM Factory (router-aware) ────────────────────────────────────────────────
+
+def get_llm(temperature: float = 0.3, intent: str = ""):
+    """
+    Returns a LangChain ChatOpenAI instance pointed at the appropriate backend.
+
+    Routes simple natural-language tasks (hints, chat) to the self-hosted VLLM
+    and complex/structured tasks (grading, JSON generation) to GPT.
+    Falls back to GPT silently if VLLM is unavailable.
+    """
     from app.core.config import settings
+    from app.ai.llm_router import route_intent, Backend, make_routed_client
+
+    backend = route_intent(intent) if intent else Backend.GPT
+    client, model = make_routed_client(backend)
+
     return ChatOpenAI(
-        model="gpt-4.1-nano",
+        model=model,
         temperature=temperature,
-        api_key=settings.OPENAI_API_KEY
+        api_key=client.api_key,
+        base_url=str(client.base_url) if backend == Backend.VLLM else None,
     )
 
 
@@ -90,61 +140,67 @@ def classify_intent(state: DialogState) -> DialogState:
 
 def generate_hint(state: DialogState) -> DialogState:
     """
-    DB'den gelen available_hints listesini kullanarak seviyeli ipucu verir.
-    Hint yoksa AI uretir.
+    Delivers a levelled hint using pre-authored DB hints when available,
+    falling back to AI generation. Grounds the response in course material.
     """
-    llm = get_llm(temperature=0.4)
+    llm = get_llm(temperature=0.4, intent="hint")
     hint_level = state.get("hint_level", 0)
     hints = state.get("available_hints", [])
+    ctx = _build_course_context_block(
+        state.get("lesson_context", []),
+        state.get("resource_info") or {},
+    )
 
     if hints and hint_level < len(hints):
-        # DB'den ipucu al (Sokrates sorusu formatinda)
         hint_text = hints[hint_level]
         system_prompt = (
             f"You are a Socratic AI tutor. The student asked for a hint on:\n"
-            f"Problem: {state['problem_title']}\n\n"
-            f"Give this hint naturally and encourage them to think:\n"
+            f"Problem: {state['problem_title']}\n"
+            f"{ctx}"
+            f"Deliver this hint naturally, encourage them to think:\n"
             f"HINT: {hint_text}\n\n"
-            f"Do NOT reveal the answer directly. Ask a guiding question after the hint."
+            f"Do NOT reveal the full answer. Ask one guiding question after the hint. "
+            f"Keep your response under 4 sentences."
         )
     else:
-        # DB'de ipucu yoksa AI uretir
         system_prompt = (
-            f"You are a Socratic AI tutor for an Algorithms course.\n"
+            f"You are a Socratic AI tutor for a programming course.\n"
             f"Problem: {state['problem_title']}\n"
             f"Description: {state['problem_description']}\n"
-            f"Student code/answer: {state.get('student_code_or_answer', 'Not provided')}\n\n"
-            f"Give a helpful hint WITHOUT revealing the answer. "
-            f"Ask a leading question to guide their thinking. Be concise."
+            f"Student's answer: {state.get('student_code_or_answer', 'Not provided')}\n"
+            f"{ctx}"
+            f"Give a helpful hint grounded in the course material WITHOUT revealing the answer. "
+            f"Ask one leading question. Keep your response under 4 sentences."
         )
 
     msg = SystemMessage(content=system_prompt)
     response = llm.invoke([msg] + list(state["messages"]))
-
-    return {
-        "messages": [response],
-        "hint_level": hint_level + 1  # Sonraki hint icin seviyeyi artir
-    }
+    return {"messages": [response], "hint_level": hint_level + 1}
 
 
 # ── Node 3: Explain Error ─────────────────────────────────────────────────────
 
 def explain_error(state: DialogState) -> DialogState:
     """
-    Hata mesajini veya anlasilmayan konuyu aciklar.
-    Kavramsal aciklama yapar, direkt cevap vermez.
+    Explains an error or confusion using course-grounded context.
+    Avoids giving the direct solution; asks a guiding question instead.
     """
-    llm = get_llm(temperature=0.2)
+    llm = get_llm(temperature=0.2, intent="error_explain")
+    ctx = _build_course_context_block(
+        state.get("lesson_context", []),
+        state.get("resource_info") or {},
+    )
 
     system_prompt = (
-        f"You are an expert Algorithms tutor.\n"
+        f"You are an expert programming tutor.\n"
         f"Problem: {state['problem_title']}\n"
-        f"Description: {state['problem_description']}\n\n"
-        f"The student seems confused or encountered an error. "
-        f"Explain the underlying CONCEPT clearly and concisely. "
+        f"Description: {state['problem_description']}\n"
+        f"{ctx}"
+        f"The student is confused or encountered an error. "
+        f"Explain the underlying concept clearly using the course material above. "
         f"Do NOT give the direct solution. "
-        f"If there's an error message in their question, explain what it means "
-        f"and ask them a question to guide their fix."
+        f"If there is an error message in their question, explain what it means. "
+        f"End with one guiding question. Keep your response concise (3-5 sentences)."
     )
 
     msg = SystemMessage(content=system_prompt)
@@ -156,19 +212,25 @@ def explain_error(state: DialogState) -> DialogState:
 
 def grade_response(state: DialogState) -> DialogState:
     """
-    Ogrencinin cevabini degerlendirir.
-    Dogru/yanlis geri bildirim verir, neden dogru/yanlis oldugunu aciklar.
+    Evaluates the student's answer, gives precise feedback grounded in course
+    material, and uses Socratic questioning when the answer is incorrect.
     """
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.1, intent="grade")
+    ctx = _build_course_context_block(
+        state.get("lesson_context", []),
+        state.get("resource_info") or {},
+    )
 
     system_prompt = (
-        f"You are an expert Algorithms tutor grading a student response.\n"
+        f"You are an expert programming tutor grading a student response.\n"
         f"Problem: {state['problem_title']}\n"
         f"Description: {state['problem_description']}\n"
-        f"Student's current code/answer: {state.get('student_code_or_answer', 'Not provided')}\n\n"
-        f"Evaluate whether the student's understanding is correct. "
-        f"Be encouraging but precise. If incorrect, use Socratic questioning "
-        f"to guide them to the right answer instead of just saying 'wrong'."
+        f"Student's answer: {state.get('student_code_or_answer', 'Not provided')}\n"
+        f"{ctx}"
+        f"Evaluate whether the student's understanding is correct based on the course material above. "
+        f"Be encouraging but precise. "
+        f"If incorrect, use Socratic questioning to guide them — do not just say 'wrong'. "
+        f"Keep your response under 5 sentences."
     )
 
     msg = SystemMessage(content=system_prompt)
@@ -180,17 +242,21 @@ def grade_response(state: DialogState) -> DialogState:
 
 def socratic_tutor(state: DialogState) -> DialogState:
     """
-    Varsayilan Sokrates yontemi node'u.
-    Ogrenciyi yonlendiren sorular sorar, direkt cevap vermez.
+    Default Socratic mode: guides the student with questions grounded in course
+    material. Does not give direct answers.
     """
-    llm = get_llm(temperature=0.3)
+    llm = get_llm(temperature=0.3, intent="general_chat")
+    ctx = _build_course_context_block(
+        state.get("lesson_context", []),
+        state.get("resource_info") or {},
+    )
 
     system_prompt = (
-        "You are an expert, encouraging Socratic AI tutor for an Algorithms "
-        "course based on Princeton's Sedgewick textbook.\n"
+        "You are an encouraging Socratic AI tutor for a programming course.\n"
         "Your goal is to guide the student to the correct answer WITHOUT giving it directly.\n"
-        "Ask targeted, leading questions. Highlight logical flaws.\n"
-        "Keep responses concise (2-3 sentences max).\n\n"
+        "Ask targeted, leading questions. Highlight logical flaws gently.\n"
+        "Keep responses concise (2-4 sentences). Ground your explanations in the course material below.\n"
+        f"{ctx}"
         f"Problem Title: {state['problem_title']}\n"
         f"Problem Description: {state['problem_description']}\n"
     )
@@ -251,25 +317,29 @@ def process_dialog_message(
     new_message: str,
     hint_level: int = 0,
     available_hints: list[str] = None,
+    lesson_context: list[dict] = None,
+    resource_info: dict = None,
     session_id: str = None,
     user_id: str = None,
 ) -> dict:
     """
-    Dialog graph'ini calistirir.
+    Runs the dialog graph for one student message.
 
     Args:
-        problem_title: Problem basligi
-        problem_description: Problem aciklamasi
-        student_code_or_answer: Ogrencinin mevcut kodu veya cevabi
-        chat_history: Gecmis mesajlar [{'role': 'user'|'assistant', 'content': '...'}]
-        new_message: Ogrencinin yeni mesaji
-        hint_level: Kac kez hint istedi
-        available_hints: DB'den gelen problem_hints listesi
-        session_id: Tutor session ID (Langfuse icin)
-        user_id: Ogrenci ID'si (Langfuse icin)
+        problem_title:          Problem title shown in the UI.
+        problem_description:    Full problem description text.
+        student_code_or_answer: Student's current code or written answer.
+        chat_history:           Previous messages [{role, content}, ...].
+        new_message:            The student's latest message.
+        hint_level:             How many hints have already been delivered.
+        available_hints:        Pre-authored hints from the DB (problem_hints table).
+        lesson_context:         Lesson summaries/excerpts fetched from DB for grounding.
+        resource_info:          {name, download_url} of the source PDF/resource.
+        session_id:             Identifier for Langfuse tracing.
+        user_id:                Student's user ID for Langfuse tracing.
 
     Returns:
-        {'response': str, 'chat_history': list, 'intent': str, 'trace_id': str|None}
+        {response, chat_history, intent, trace_id}
     """
     from app.core.config import settings
 
@@ -303,7 +373,9 @@ def process_dialog_message(
         "student_code_or_answer": student_code_or_answer or "",
         "hint_level": hint_level,
         "available_hints": available_hints or [],
-        "intent": "",  # classify_intent tarafindan doldurulacak
+        "intent": "",
+        "lesson_context": lesson_context or [],
+        "resource_info": resource_info or {},
     }
 
     config = {"callbacks": callbacks} if callbacks else {}

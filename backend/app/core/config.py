@@ -40,9 +40,17 @@ class Settings(BaseSettings):
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_HOST:       str = "https://cloud.langfuse.com"
 
-    # GLM-OCR (primary PDF extraction model)
+    # GLM-OCR (primary PDF extraction model — vision/OCR tasks only)
     GLM_OCR_API_URL: str = "http://173.249.57.83:7003/v1/chat/completions"
     GLM_OCR_TOKEN:   str = ""
+
+    # VLLM — self-hosted LLM for routing simple AI Tutor responses
+    # Uses the same server as GLM-OCR (port 7003) since it's OpenAI-compatible.
+    # Set VLLM_ENABLED=false to disable routing and send everything to GPT.
+    VLLM_BASE_URL:  str  = "http://173.249.57.83:7003/v1"
+    VLLM_MODEL:     str  = "GLM-OCR-Q8_0.gguf"
+    VLLM_TOKEN:     str  = ""          # will fall back to GLM_OCR_TOKEN if empty
+    VLLM_ENABLED:   bool = True        # set False to disable routing entirely
 
     # MinIO object storage
     MINIO_ENDPOINT:    str  = "s3.iotiq.dev"

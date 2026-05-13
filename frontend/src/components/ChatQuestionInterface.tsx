@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Question, ChatMessage } from '../types';
-import { chatWithTutor } from '../api/tutor';
+import { chatWithTutor, getTutorSession } from '../api/tutor';
 import { cn } from '../lib/utils';
 
 export interface ChatQuestionInterfaceRef {
@@ -27,18 +27,62 @@ export const ChatQuestionInterface = forwardRef<ChatQuestionInterfaceRef, ChatQu
   const [apiHistory, setApiHistory] = useState<{ role: string; content: string }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // True while loading the session from the backend on mount
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [sessionRestored, setSessionRestored] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Initialise with a welcome message when question changes
+  // On mount (or when the question changes): try to restore the saved session.
+  // If no prior session exists, show the standard welcome message instead.
   useEffect(() => {
-    const welcome: ChatMessage = {
-      id: '0',
-      role: 'assistant',
-      content: `Hi! I'm your AI Tutor for **${question.title}**.\n\nI won't give you the answer directly — but I'll guide you there with questions. Ask me for a hint, explain your thinking, or say "check my answer".`,
-      timestamp: Date.now(),
+    let cancelled = false;
+
+    const restore = async () => {
+      setIsRestoring(true);
+      setSessionRestored(false);
+      try {
+        const session = await getTutorSession(problemId);
+        if (cancelled) return;
+
+        if (session.messages && session.messages.length > 0) {
+          // Rebuild the visual messages list from the stored API history
+          const restored: ChatMessage[] = session.messages.map((m, i) => ({
+            id: String(i),
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            timestamp: Date.now() - (session.messages.length - i) * 1000,
+          }));
+          setMessages(restored);
+          setApiHistory(session.messages);
+          setSessionRestored(true);
+        } else {
+          // No prior session — show welcome message
+          setMessages([{
+            id: '0',
+            role: 'assistant',
+            content: `Hi! I'm your AI Tutor for **${question.title}**.\n\nI won't give you the answer directly — but I'll guide you there with questions. Ask me for a hint, explain your thinking, or say "check my answer".`,
+            timestamp: Date.now(),
+          }]);
+          setApiHistory([]);
+        }
+      } catch {
+        // Network error or first-time session — fall back to welcome
+        if (!cancelled) {
+          setMessages([{
+            id: '0',
+            role: 'assistant',
+            content: `Hi! I'm your AI Tutor for **${question.title}**.\n\nI won't give you the answer directly — but I'll guide you there with questions. Ask me for a hint, explain your thinking, or say "check my answer".`,
+            timestamp: Date.now(),
+          }]);
+          setApiHistory([]);
+        }
+      } finally {
+        if (!cancelled) setIsRestoring(false);
+      }
     };
-    setMessages([welcome]);
-    setApiHistory([]);
+
+    restore();
+    return () => { cancelled = true; };
   }, [question.id]);
 
   useEffect(() => {
@@ -141,14 +185,28 @@ export const ChatQuestionInterface = forwardRef<ChatQuestionInterfaceRef, ChatQu
           </div>
           <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0f172a] rounded-full" />
         </div>
-        <div>
+        <div className="flex-1">
           <h3 className="font-bold text-white text-[15px] tracking-tight">AI Tutor</h3>
           <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Socratic Mode · LangGraph</span>
         </div>
+        {/* Session restored badge */}
+        {sessionRestored && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700">
+            <RotateCcw size={10} className="text-emerald-400" />
+            <span className="text-[10px] text-emerald-400 font-medium">Restored</span>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0d1117]">
+        {/* Restoring overlay */}
+        {isRestoring && (
+          <div className="flex items-center justify-center gap-2 py-4 text-slate-500 text-xs">
+            <Loader2 size={14} className="animate-spin text-emerald-500" />
+            <span>Loading your previous conversation…</span>
+          </div>
+        )}
         <AnimatePresence initial={false}>
           {messages.map(msg => (
             <motion.div
