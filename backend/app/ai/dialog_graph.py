@@ -143,9 +143,11 @@ def classify_intent(state: DialogState) -> DialogState:
 
 def generate_hint(state: DialogState) -> DialogState:
     """
-    Delivers a levelled hint using pre-authored DB hints when available,
-    falling back to AI generation. Grounds the response in course material.
+    Deliver a levelled hint using pre-authored DB hints when available,
+    falling back to AI generation grounded in course material.
     """
+    from app.ai.prompts import tutor_hint
+
     llm = get_llm(temperature=0.4, intent="hint")
     hint_level = state.get("hint_level", 0)
     hints = state.get("available_hints", [])
@@ -154,27 +156,14 @@ def generate_hint(state: DialogState) -> DialogState:
         state.get("resource_info") or {},
     )
 
-    if hints and hint_level < len(hints):
-        hint_text = hints[hint_level]
-        system_prompt = (
-            f"You are a Socratic AI tutor. The student asked for a hint on:\n"
-            f"Problem: {state['problem_title']}\n"
-            f"{ctx}"
-            f"Deliver this hint naturally, encourage them to think:\n"
-            f"HINT: {hint_text}\n\n"
-            f"Do NOT reveal the full answer. Ask one guiding question after the hint. "
-            f"Keep your response under 4 sentences."
-        )
-    else:
-        system_prompt = (
-            f"You are a Socratic AI tutor for a programming course.\n"
-            f"Problem: {state['problem_title']}\n"
-            f"Description: {state['problem_description']}\n"
-            f"Student's answer: {state.get('student_code_or_answer', 'Not provided')}\n"
-            f"{ctx}"
-            f"Give a helpful hint grounded in the course material WITHOUT revealing the answer. "
-            f"Ask one leading question. Keep your response under 4 sentences."
-        )
+    scripted = hints[hint_level] if hints and hint_level < len(hints) else ""
+    system_prompt = tutor_hint.render(
+        problem_title=state["problem_title"],
+        problem_description=state.get("problem_description", ""),
+        course_context_block=ctx,
+        student_answer=state.get("student_code_or_answer", ""),
+        scripted_hint=scripted,
+    )
 
     msg = SystemMessage(content=system_prompt)
     response = llm.invoke([msg] + list(state["messages"]))
@@ -185,25 +174,21 @@ def generate_hint(state: DialogState) -> DialogState:
 
 def explain_error(state: DialogState) -> DialogState:
     """
-    Explains an error or confusion using course-grounded context.
-    Avoids giving the direct solution; asks a guiding question instead.
+    Explain an error or confusion using course-grounded context.
+    Avoids giving the direct solution; ends with a guiding question.
     """
+    from app.ai.prompts import tutor_error
+
     llm = get_llm(temperature=0.2, intent="error_explain")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
     )
-
-    system_prompt = (
-        f"You are an expert programming tutor.\n"
-        f"Problem: {state['problem_title']}\n"
-        f"Description: {state['problem_description']}\n"
-        f"{ctx}"
-        f"The student is confused or encountered an error. "
-        f"Explain the underlying concept clearly using the course material above. "
-        f"Do NOT give the direct solution. "
-        f"If there is an error message in their question, explain what it means. "
-        f"End with one guiding question. Keep your response concise (3-5 sentences)."
+    system_prompt = tutor_error.render(
+        problem_title=state["problem_title"],
+        problem_description=state.get("problem_description", ""),
+        course_context_block=ctx,
+        student_answer=state.get("student_code_or_answer", ""),
     )
 
     msg = SystemMessage(content=system_prompt)
@@ -215,25 +200,21 @@ def explain_error(state: DialogState) -> DialogState:
 
 def grade_response(state: DialogState) -> DialogState:
     """
-    Evaluates the student's answer, gives precise feedback grounded in course
-    material, and uses Socratic questioning when the answer is incorrect.
+    Evaluate the student's answer and give structured feedback grounded in
+    course material. Uses Socratic questioning for incorrect answers.
     """
+    from app.ai.prompts import tutor_grade
+
     llm = get_llm(temperature=0.1, intent="grade")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
     )
-
-    system_prompt = (
-        f"You are an expert programming tutor grading a student response.\n"
-        f"Problem: {state['problem_title']}\n"
-        f"Description: {state['problem_description']}\n"
-        f"Student's answer: {state.get('student_code_or_answer', 'Not provided')}\n"
-        f"{ctx}"
-        f"Evaluate whether the student's understanding is correct based on the course material above. "
-        f"Be encouraging but precise. "
-        f"If incorrect, use Socratic questioning to guide them — do not just say 'wrong'. "
-        f"Keep your response under 5 sentences."
+    system_prompt = tutor_grade.render(
+        problem_title=state["problem_title"],
+        problem_description=state.get("problem_description", ""),
+        course_context_block=ctx,
+        student_answer=state.get("student_code_or_answer", "Not provided"),
     )
 
     msg = SystemMessage(content=system_prompt)
@@ -245,26 +226,22 @@ def grade_response(state: DialogState) -> DialogState:
 
 def socratic_tutor(state: DialogState) -> DialogState:
     """
-    Default Socratic mode: guides the student with questions grounded in course
+    Default Socratic mode: guide the student with questions grounded in course
     material. Does not give direct answers.
     """
+    from app.ai.prompts import tutor_socratic
+
     llm = get_llm(temperature=0.3, intent="general_chat")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
     )
-
-    system_prompt = (
-        "You are an encouraging Socratic AI tutor for a programming course.\n"
-        "Your goal is to guide the student to the correct answer WITHOUT giving it directly.\n"
-        "Ask targeted, leading questions. Highlight logical flaws gently.\n"
-        "Keep responses concise (2-4 sentences). Ground your explanations in the course material below.\n"
-        f"{ctx}"
-        f"Problem Title: {state['problem_title']}\n"
-        f"Problem Description: {state['problem_description']}\n"
+    system_prompt = tutor_socratic.render(
+        problem_title=state["problem_title"],
+        problem_description=state.get("problem_description", ""),
+        course_context_block=ctx,
+        student_answer=state.get("student_code_or_answer", ""),
     )
-    if state.get("student_code_or_answer"):
-        system_prompt += f"Student's current draft:\n{state['student_code_or_answer']}"
 
     msg = SystemMessage(content=system_prompt)
     response = llm.invoke([msg] + list(state["messages"]))
