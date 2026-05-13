@@ -103,38 +103,160 @@ def get_llm(temperature: float = 0.3, intent: str = ""):
     )
 
 
+def _call_llm(
+    system_prompt: str,
+    chat_history,
+    intent: str,
+    temperature: float,
+) -> AIMessage:
+    """
+    Route to the correct backend and return an AIMessage with non-empty content.
+
+    Why this exists instead of get_llm() + llm.invoke():
+    Thinking-style self-hosted models separate their chain-of-thought
+    (reasoning_content) from the final answer (content). LangChain's ChatOpenAI
+    wrapper does not expose reasoning_content, so content can appear empty.
+    This helper calls the self-hosted backend directly via the raw OpenAI client
+    and uses extract_vllm_content() to safely retrieve the final answer.
+    If the self-hosted model returns empty content, we fall back to GPT silently.
+    GPT calls always go through LangChain for Langfuse tracing compatibility.
+
+    Args:
+        system_prompt: The formatted system prompt string.
+        chat_history:  List of BaseMessage objects from dialog state.
+        intent:        Intent string used by the router.
+        temperature:   Sampling temperature.
+
+    Returns:
+        AIMessage whose .content is always a non-empty string on success.
+    """
+    import logging
+    from app.ai.llm_router import route_intent, Backend, make_routed_client, extract_vllm_content
+
+    log = logging.getLogger(__name__)
+    backend = route_intent(intent)
+    client, model, max_tokens = make_routed_client(backend)
+
+    if backend == Backend.VLLM:
+        # Build raw message list for the OpenAI client
+        msgs = [{"role": "system", "content": system_prompt}]
+        for m in chat_history:
+            if isinstance(m, HumanMessage):
+                msgs.append({"role": "user",      "content": m.content})
+            elif isinstance(m, AIMessage):
+                msgs.append({"role": "assistant", "content": m.content})
+        raw = client.chat.completions.create(
+            model=model,
+            messages=msgs,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = extract_vllm_content(raw)
+        if text:
+            return AIMessage(content=text)
+        # VLLM returned empty — fall through to GPT
+        log.warning("[Dialog] VLLM returned empty content, falling back to GPT")
+        backend = Backend.GPT
+        client, model, _ = make_routed_client(backend)
+
+    # Cloud API path — use LangChain so Langfuse callback captures it
+    llm = ChatOpenAI(
+        model=model,
+        temperature=temperature,
+        api_key=client.api_key,
+    )
+    return llm.invoke([SystemMessage(content=system_prompt)] + list(chat_history))
+
+
 # ── Node 1: Classify Intent ───────────────────────────────────────────────────
 
 def classify_intent(state: DialogState) -> DialogState:
     """
-    Ogrencinin son mesajini analiz eder ve intent belirler.
-    Intent: 'hint' | 'explain' | 'grade' | 'socratic'
-    LLM kullanmadan kural tabanli (hizli ve tutarli).
+    Use a lightweight LLM call to analyze the student's message in context
+    and determine the appropriate dialog node to route to.
+
+    Why LLM instead of keywords:
+      Keywords fail on short affirmations ('yes', 'ok', 'idk'), multilingual
+      input, and contextually ambiguous messages. The LLM reads the full
+      conversation context — the student's message AND the last tutor response —
+      so 'yes' after 'Would you like a hint?' correctly maps to 'hint'.
+
+    Model choice: GPT-4.1-nano (fast, cheap, reliable JSON output).
+    Temperature: 0.0 (deterministic — classification should not be random).
+    Fallback: 'socratic' if the LLM call fails for any reason.
+
+    Intent definitions passed to the model:
+      hint     — student wants guidance / is stuck / says yes to a hint offer
+      explain  — student encountered an error or wants a concept explained
+      grade    — student wants their answer checked
+      socratic — general question or discussion that doesn't fit the above
     """
-    # Son mesaji al
-    last_msg = ""
+    import json
+    import logging
+    from openai import OpenAI
+    from app.core.config import settings
+
+    log = logging.getLogger(__name__)
+
+    # Collect the last student message and last tutor response for context
+    last_student_msg  = ""
+    last_assistant_msg = ""
     for msg in reversed(state["messages"]):
-        if isinstance(msg, HumanMessage):
-            last_msg = msg.content.lower()
+        if isinstance(msg, HumanMessage) and not last_student_msg:
+            last_student_msg = msg.content.strip()
+        elif isinstance(msg, AIMessage) and not last_assistant_msg:
+            last_assistant_msg = msg.content.strip()
+        if last_student_msg and last_assistant_msg:
             break
 
-    # Kural tabanli siniflandirma (LLM cagrisi yapmadan hizli)
-    hint_keywords = ["hint", "ipucu", "can't figure", "stuck", "help me", 
-                     "yardim", "nasil", "how do i", "show me", "give me a hint"]
-    explain_keywords = ["explain", "why", "error", "exception", "traceback",
-                       "neden", "acikla", "anlat", "what does", "ne demek"]
-    grade_keywords = ["check my answer", "is this right", "correct?", "is this correct",
-                     "correct", "verify", "am i right", "right?", "is this right", "check this",
-                     "am i on the right track", "is my answer"]
+    classification_prompt = f"""You are an intent classifier for an AI tutoring system.
 
-    if any(k in last_msg for k in hint_keywords):
+PROBLEM THE STUDENT IS WORKING ON:
+{state['problem_title']}
+
+LAST TUTOR MESSAGE:
+{last_assistant_msg or '(start of conversation — no previous message)'}
+
+STUDENT'S NEW MESSAGE:
+\"{last_student_msg}\"
+
+Classify the student's intent as exactly one of the following:
+  "hint"     — student wants a hint, is stuck, or affirms a hint offer (e.g. "yes", "ok", "sure", "help me", "I don't know", "idk", ":(", "hmm")
+  "explain"  — student hit an error, something doesn't work, or wants a concept explained (e.g. "why", "error", "doesn't work")
+  "grade"    — student wants their answer checked (e.g. "check this", "is this right", "I think the answer is X")
+  "refuse"   — student is asking for the direct answer (e.g. "just give me the answer", "tell me the answer", "what's the answer", "I give up", "just tell me")
+  "socratic" — general question or open discussion (e.g. "what is X", "tell me about Y")
+
+Rules:
+  - Short affirmations ('yes', 'ok', 'sure', 'yep', 'please') should be interpreted based on what the tutor last asked.
+  - Frustration expressions (':(', 'idk', 'I'm not sure', 'hmm', 'no idea') should map to 'hint'.
+  - IMPORTANT: If the student is asking for the direct answer or giving up, classify as 'refuse'.
+  - When in doubt, prefer 'hint' over 'socratic'.
+
+Respond with ONLY a JSON object, nothing else:
+{{"intent": "<one of: hint, explain, grade, refuse, socratic>"}}"""
+
+    try:
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4.1-nano",
+            messages=[{"role": "user", "content": classification_prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=20,
+            temperature=0.0,
+        )
+        data    = json.loads(response.choices[0].message.content)
+        intent  = data.get("intent", "socratic")
+        valid   = {"hint", "explain", "grade", "refuse", "socratic"}
+        if intent not in valid:
+            log.warning(f"[Classifier] Unexpected intent '{intent}', falling back to 'socratic'")
+            intent = "socratic"
+        log.info(f"[Classifier] '{last_student_msg[:40]}' → {intent}")
+
+    except Exception as exc:
+        # Never let a classifier failure break the tutor — fall back gracefully
+        log.warning(f"[Classifier] LLM call failed ({exc}), defaulting to 'hint'")
         intent = "hint"
-    elif any(k in last_msg for k in explain_keywords):
-        intent = "explain"
-    elif any(k in last_msg for k in grade_keywords):
-        intent = "grade"
-    else:
-        intent = "socratic"  # varsayilan: Sokrates yontemi
 
     return {"intent": intent}
 
@@ -148,7 +270,6 @@ def generate_hint(state: DialogState) -> DialogState:
     """
     from app.ai.prompts import tutor_hint
 
-    llm = get_llm(temperature=0.4, intent="hint")
     hint_level = state.get("hint_level", 0)
     hints = state.get("available_hints", [])
     ctx = _build_course_context_block(
@@ -164,9 +285,7 @@ def generate_hint(state: DialogState) -> DialogState:
         student_answer=state.get("student_code_or_answer", ""),
         scripted_hint=scripted,
     )
-
-    msg = SystemMessage(content=system_prompt)
-    response = llm.invoke([msg] + list(state["messages"]))
+    response = _call_llm(system_prompt, state["messages"], intent="hint", temperature=0.4)
     return {"messages": [response], "hint_level": hint_level + 1}
 
 
@@ -179,7 +298,6 @@ def explain_error(state: DialogState) -> DialogState:
     """
     from app.ai.prompts import tutor_error
 
-    llm = get_llm(temperature=0.2, intent="error_explain")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
@@ -190,9 +308,7 @@ def explain_error(state: DialogState) -> DialogState:
         course_context_block=ctx,
         student_answer=state.get("student_code_or_answer", ""),
     )
-
-    msg = SystemMessage(content=system_prompt)
-    response = llm.invoke([msg] + list(state["messages"]))
+    response = _call_llm(system_prompt, state["messages"], intent="error_explain", temperature=0.2)
     return {"messages": [response]}
 
 
@@ -205,7 +321,6 @@ def grade_response(state: DialogState) -> DialogState:
     """
     from app.ai.prompts import tutor_grade
 
-    llm = get_llm(temperature=0.1, intent="grade")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
@@ -216,9 +331,7 @@ def grade_response(state: DialogState) -> DialogState:
         course_context_block=ctx,
         student_answer=state.get("student_code_or_answer", "Not provided"),
     )
-
-    msg = SystemMessage(content=system_prompt)
-    response = llm.invoke([msg] + list(state["messages"]))
+    response = _call_llm(system_prompt, state["messages"], intent="grade", temperature=0.1)
     return {"messages": [response]}
 
 
@@ -231,7 +344,6 @@ def socratic_tutor(state: DialogState) -> DialogState:
     """
     from app.ai.prompts import tutor_socratic
 
-    llm = get_llm(temperature=0.3, intent="general_chat")
     ctx = _build_course_context_block(
         state.get("lesson_context", []),
         state.get("resource_info") or {},
@@ -242,16 +354,52 @@ def socratic_tutor(state: DialogState) -> DialogState:
         course_context_block=ctx,
         student_answer=state.get("student_code_or_answer", ""),
     )
+    response = _call_llm(system_prompt, state["messages"], intent="general_chat", temperature=0.3)
+    return {"messages": [response]}
 
-    msg = SystemMessage(content=system_prompt)
-    response = llm.invoke([msg] + list(state["messages"]))
+
+# ── Node 6: Refuse Direct Answer ─────────────────────────────────────────────
+
+def refuse_answer(state: DialogState) -> DialogState:
+    """
+    Handle requests for the direct answer without giving it.
+
+    When a student asks 'just give me the answer' or 'I give up', this node
+    responds empathetically, declines to reveal the answer, and re-engages
+    the student with a simpler, more targeted guiding question.
+
+    Why a dedicated node instead of adding to all system prompts:
+    Having this as a separate intent + node makes the behavior explicit,
+    testable, and visible in Langfuse traces. The student's frustration is
+    acknowledged before guiding them forward.
+    """
+    hint_count = state.get("hint_level", 0)
+    ctx = _build_course_context_block(
+        state.get("lesson_context", []),
+        state.get("resource_info") or {},
+    )
+
+    system_prompt = (
+        f"You are a supportive Socratic AI tutor.\n"
+        f"Problem: {state['problem_title']}\n"
+        f"{ctx}"
+        f"The student has asked you to just give them the answer. "
+        f"You MUST NOT reveal the answer, even if the student insists.\n"
+        f"\nInstead, respond empathetically — acknowledge their frustration — "
+        f"then ask ONE very specific, easy guiding question that breaks the "
+        f"problem into a smaller step they can answer.\n"
+        f"Hints delivered so far: {hint_count}. "
+        f"If many hints have been given, make the guiding question even simpler.\n"
+        f"Keep your response under 4 sentences. Do not reveal the answer."
+    )
+    response = _call_llm(system_prompt, state["messages"], intent="general_chat", temperature=0.4)
     return {"messages": [response]}
 
 
 # ── Router: intent → node ─────────────────────────────────────────────────────
 
-def route_by_intent(state: DialogState) -> Literal["hint", "explain", "grade", "socratic"]:
-    """classify_intent'ten gelen intent'e gore yonlendir"""
+def route_by_intent(state: DialogState) -> Literal["hint", "explain", "grade", "socratic", "refuse"]:
+    """Route from classify_intent to the appropriate dialog node."""
     return state.get("intent", "socratic")
 
 
@@ -259,14 +407,13 @@ def route_by_intent(state: DialogState) -> Literal["hint", "explain", "grade", "
 
 builder = StateGraph(DialogState)
 
-# Node'lari ekle
 builder.add_node("classify_intent", classify_intent)
-builder.add_node("hint", generate_hint)
+builder.add_node("hint",    generate_hint)
 builder.add_node("explain", explain_error)
-builder.add_node("grade", grade_response)
-builder.add_node("socratic", socratic_tutor)
+builder.add_node("grade",   grade_response)
+builder.add_node("socratic",socratic_tutor)
+builder.add_node("refuse",  refuse_answer)
 
-# Edge'leri bagla
 builder.add_edge(START, "classify_intent")
 builder.add_conditional_edges(
     "classify_intent",
@@ -276,14 +423,15 @@ builder.add_conditional_edges(
         "explain":  "explain",
         "grade":    "grade",
         "socratic": "socratic",
+        "refuse":   "refuse",
     }
 )
-builder.add_edge("hint",     END)
-builder.add_edge("explain",  END)
-builder.add_edge("grade",    END)
-builder.add_edge("socratic", END)
+builder.add_edge("hint",    END)
+builder.add_edge("explain", END)
+builder.add_edge("grade",   END)
+builder.add_edge("socratic",END)
+builder.add_edge("refuse",  END)
 
-# Graph'i derle
 dialog_graph = builder.compile()
 
 

@@ -126,39 +126,32 @@ def make_routed_client(backend: Backend) -> tuple[OpenAI, str, int]:
 
 def extract_vllm_content(completion) -> str:
     """
-    Safely extract the final answer from an API completion response.
+    Safely extract the final answer from a thinking-model API response.
 
-    Thinking-style models populate reasoning_content with their chain-of-thought
-    and write the actual answer to content. If content is empty (which happens
-    when max_tokens is too low to finish thinking), fall back to the last
-    non-empty sentence of reasoning_content as a best-effort response.
+    Thinking-style models write internal chain-of-thought to reasoning_content
+    and the actual reply to content. This function ONLY reads content.
+
+    We deliberately never fall back to reasoning_content because:
+      - It contains raw unfiltered thinking (incomplete sentences, answer leaks)
+      - It may expose internal answer formats to the student
+      - An empty string return signals _call_llm to fall back to GPT instead
 
     Args:
         completion: The raw ChatCompletion object from the OpenAI client.
 
     Returns:
-        The cleaned response string (never empty if the call succeeded).
+        The cleaned content string, or empty string if content was not produced.
     """
     choice = completion.choices[0].message
     content = (choice.content or "").strip()
 
-    if content:
-        return content
-
-    # Fallback: reasoning ran out of token budget — use last reasoning sentence
-    reasoning = getattr(choice, "reasoning_content", "") or ""
-    if reasoning:
+    if not content:
         logger.warning(
-            "[Router] VLLM response content was empty — "
-            "model likely ran out of tokens during thinking. "
-            "Returning last reasoning sentence as fallback. "
-            "Consider increasing VLLM_MAX_TOKENS."
+            "[Router] VLLM response content was empty (thinking model ran out of token budget). "
+            "Caller should fall back to GPT. Consider increasing VLLM_MAX_TOKENS."
         )
-        # Return the last non-empty sentence from the reasoning block
-        sentences = [s.strip() for s in reasoning.split(".") if s.strip()]
-        return sentences[-1] + "." if sentences else reasoning[-200:]
 
-    return ""
+    return content
 
 
 def make_vllm_client_with_fallback(intent: str) -> tuple[OpenAI, str, int, Backend]:
