@@ -80,23 +80,26 @@ def _build_course_context_block(lesson_context: list, resource_info: dict) -> st
 
 def get_llm(temperature: float = 0.3, intent: str = ""):
     """
-    Returns a LangChain ChatOpenAI instance pointed at the appropriate backend.
+    Return a LangChain ChatOpenAI instance pointed at the appropriate backend.
 
-    Routes simple natural-language tasks (hints, chat) to the self-hosted VLLM
-    and complex/structured tasks (grading, JSON generation) to GPT.
-    Falls back to GPT silently if VLLM is unavailable.
+    Routes simple natural-language tasks (hints, chat) to the self-hosted model
+    and complex/structured tasks (grading, JSON generation) to the cloud API.
+    Falls back to the cloud API silently if the self-hosted endpoint is unavailable.
+
+    The max_tokens value is read from the router so thinking-style local models
+    receive a large enough budget to complete their internal reasoning phase.
     """
-    from app.core.config import settings
     from app.ai.llm_router import route_intent, Backend, make_routed_client
 
     backend = route_intent(intent) if intent else Backend.GPT
-    client, model = make_routed_client(backend)
+    client, model, max_tokens = make_routed_client(backend)
 
     return ChatOpenAI(
         model=model,
         temperature=temperature,
         api_key=client.api_key,
         base_url=str(client.base_url) if backend == Backend.VLLM else None,
+        max_tokens=max_tokens,
     )
 
 

@@ -860,7 +860,7 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
   const [showPromptBox, setShowPromptBox] = useState(false);
 
-  type ChatMsg = { role: 'user' | 'assistant'; content: string; loading?: boolean };
+  type ChatMsg = { role: 'user' | 'assistant'; content: string; loading?: boolean; warnings?: string[] };
 
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
 
@@ -1157,7 +1157,11 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
 
         ...prev.slice(0, -1),
 
-        { role: 'assistant', content: res.summary },
+        {
+          role: 'assistant',
+          content: res.summary,
+          warnings: res.warnings ?? [],
+        },
 
       ]);
 
@@ -2014,6 +2018,17 @@ export const CourseBuilderPage: React.FC<CourseBuilderPageProps> = ({
                               ? <span className="flex items-center gap-2"><Loader2 size={12} className="animate-spin text-[#00e5a0]" /> Thinking…</span>
                               : msg.content
                             }
+                            {/* Guardrail warnings — shown when AI content may not align with course material */}
+                            {!msg.loading && msg.warnings && msg.warnings.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-1">
+                                <span className="flex items-center gap-1 text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
+                                  ⚠ Content Review Suggested
+                                </span>
+                                {msg.warnings.map((w, wi) => (
+                                  <p key={wi} className="text-[10px] text-amber-300/80 leading-relaxed">{w}</p>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           {msg.role === 'user' && (

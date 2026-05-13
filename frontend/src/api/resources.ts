@@ -603,6 +603,8 @@ export interface ContentChatResponse {
     lesson_id?: string;
     error?: string;
   }[];
+  /** Guardrail warnings — non-empty when generated content may not align with lesson material. */
+  warnings?: string[];
 }
 
 export async function sendContentChat(

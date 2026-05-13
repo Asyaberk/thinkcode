@@ -40,17 +40,24 @@ class Settings(BaseSettings):
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_HOST:       str = "https://cloud.langfuse.com"
 
+    # Guardrail layer — applied to all AI input/output points
+    # Set GUARDRAIL_ENABLED=false in .env to skip checks (useful in local dev)
+    GUARDRAIL_ENABLED: bool = True
+
     # GLM-OCR (primary PDF extraction model — vision/OCR tasks only)
     GLM_OCR_API_URL: str = "http://173.249.57.83:7003/v1/chat/completions"
     GLM_OCR_TOKEN:   str = ""
 
-    # VLLM — self-hosted LLM for routing simple AI Tutor responses
-    # Uses the same server as GLM-OCR (port 7003) since it's OpenAI-compatible.
-    # Set VLLM_ENABLED=false to disable routing and send everything to GPT.
-    VLLM_BASE_URL:  str  = "http://173.249.57.83:7003/v1"
-    VLLM_MODEL:     str  = "GLM-OCR-Q8_0.gguf"
-    VLLM_TOKEN:     str  = ""          # will fall back to GLM_OCR_TOKEN if empty
-    VLLM_ENABLED:   bool = True        # set False to disable routing entirely
+    # Self-hosted LLM — routes simple AI Tutor responses away from the paid API
+    # Uses an OpenAI-compatible endpoint so only base_url and api_key need to change.
+    # Set VLLM_ENABLED=false in .env to disable routing and send everything to GPT.
+    VLLM_BASE_URL:    str  = "http://173.249.57.83:7001/v1"
+    VLLM_MODEL:       str  = "qwen3.6-27b-q4_k_m"
+    VLLM_TOKEN:       str  = ""          # falls back to GLM_OCR_TOKEN if empty
+    VLLM_ENABLED:     bool = True        # set False to disable routing entirely
+    # Thinking-style models spend many tokens on internal reasoning before answering.
+    # This budget must be high enough to cover both the reasoning and the actual reply.
+    VLLM_MAX_TOKENS:  int  = 2500
 
     # MinIO object storage
     MINIO_ENDPOINT:    str  = "s3.iotiq.dev"

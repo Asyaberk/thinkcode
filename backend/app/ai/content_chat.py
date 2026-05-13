@@ -195,6 +195,37 @@ def handle_chat_command(
     context = _build_class_context(class_id, db)
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
+    from app.db.models import Topic as TopicModel, Lesson as LessonModel
+    from app.ai.guardrail import scan_input, scan_generated_actions
+
+    # ── INPUT GUARDRAIL: check instructor message before hitting LLM ──────────
+    input_check = scan_input(message, context="instructor/content-builder")
+    if input_check.blocked:
+        return {
+            "summary": f"Message blocked: {input_check.block_reason}",
+            "actions_executed": [],
+            "warnings": input_check.warnings,
+        }
+
+    # Collect lesson summaries for post-generation semantic relevance check.
+    lesson_context_for_guard: list[dict] = []
+    for topic_dict in context.get("topics", []):
+        topic_id = topic_dict.get("id") or topic_dict.get("topic_id", "")
+        if not topic_id:
+            continue
+        lessons = (
+            db.query(LessonModel)
+            .filter(LessonModel.topic_id == topic_id)
+            .limit(2)
+            .all()
+        )
+        for lesson in lessons:
+            lesson_context_for_guard.append({
+                "title":   lesson.title,
+                "summary": (lesson.summary or "")[:300],
+                "content_excerpt": (lesson.content_markdown or "")[:600],
+            })
+
     user_message = (
         f"== CURRENT COURSE CONTENT ==\n{context_json}\n\n"
         f"== INSTRUCTOR REQUEST ==\n{message}"
@@ -253,7 +284,16 @@ def handle_chat_command(
     db.commit()
     logger.info(f"[ContentChat] Executed {len(executed)} actions. Summary: {summary[:100]}")
 
-    return {"summary": summary, "actions_executed": executed}
+    # ── OUTPUT GUARDRAIL: semantic relevance check via embeddings ────────────
+    warnings: list[str] = []
+    if lesson_context_for_guard and actions:
+        warnings = scan_generated_actions(actions, lesson_context_for_guard)
+        if warnings:
+            logger.warning(
+                f"[Guardrail] {len(warnings)} semantic warning(s) for class={class_id}"
+            )
+
+    return {"summary": summary, "actions_executed": executed, "warnings": warnings}
 
 
 # ── Action executors ──────────────────────────────────────────────────────────

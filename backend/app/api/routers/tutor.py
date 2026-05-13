@@ -160,6 +160,17 @@ def chat_with_tutor(
                     "download_url": f"/api/v1/resources/{resource.id}/download",
                 }
 
+    # ── INPUT GUARDRAIL: check student message before hitting LLM ───────────
+    from app.ai.guardrail import scan_input, scan_output
+
+    input_check = scan_input(body.new_message, context="student/tutor")
+    if input_check.blocked:
+        return TutorChatResponse(
+            response="I can't respond to that message. Let's focus on your programming problem!",
+            chat_history=chat_history_dicts,
+            trace_id=None,
+        )
+
     # ── Run the dialog graph ─────────────────────────────────────────────────
 
     try:
@@ -247,6 +258,20 @@ def chat_with_tutor(
         db.add(db_session)
 
     db.commit()
+
+    # ── OUTPUT GUARDRAIL: semantic relevance of AI response ─────────────────
+    # Non-blocking — we still return the response, but log if it seems off-topic.
+    if lesson_context:
+        output_check = scan_output(
+            generated_text=result["response"],
+            lesson_context=lesson_context,
+            item_label=f"tutor response for '{problem.title[:40]}'",
+        )
+        if not output_check.passed:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[Guardrail/Tutor] Low relevance on response for problem={problem.id}"
+            )
 
     return TutorChatResponse(
 
