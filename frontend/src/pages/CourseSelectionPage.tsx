@@ -829,26 +829,42 @@ export const CourseSelectionPage: React.FC<CourseSelectionPageProps> = ({
 
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Theme Color</label>
 
-                    <div className="flex items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
 
-                      <input 
+                      {/* Preset swatches */}
+                      <div className="flex flex-wrap gap-2">
+                        {['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#f97316','#84cc16','#6366f1'].map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setFormData({...formData, color: c})}
+                            style={{ backgroundColor: c }}
+                            className={`w-7 h-7 rounded-lg transition-all hover:scale-110 ${formData.color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-950 scale-110' : ''}`}
+                            title={c}
+                          />
+                        ))}
+                      </div>
 
-                        type="color" 
-
-                        value={formData.color}
-
-                        onChange={e => setFormData({...formData, color: e.target.value})}
-
-                        className="w-12 h-12 rounded-xl bg-transparent border-none cursor-pointer"
-
-                      />
-
-                      <div className="flex-1">
-
-                        <div className="text-xs font-bold text-white mb-0.5">Primary Accent</div>
-
-                        <div className="text-[9px] font-black text-slate-600 uppercase tracking-wider">Interface branding</div>
-
+                      {/* Custom color row */}
+                      <div className="flex items-center gap-3 pt-1">
+                        <div className="relative">
+                          <div
+                            style={{ backgroundColor: formData.color }}
+                            className="w-10 h-10 rounded-xl cursor-pointer border border-white/10 hover:scale-105 transition-transform"
+                            onClick={() => document.getElementById('course-color-picker')?.click()}
+                          />
+                          <input
+                            id="course-color-picker"
+                            type="color"
+                            value={formData.color}
+                            onChange={e => setFormData({...formData, color: e.target.value})}
+                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white">{formData.color.toUpperCase()}</div>
+                          <div className="text-[9px] font-black text-slate-600 uppercase tracking-wider">click swatch for custom</div>
+                        </div>
                       </div>
 
                     </div>

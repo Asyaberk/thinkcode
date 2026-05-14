@@ -784,39 +784,46 @@ export const QuestionPage: React.FC<QuestionPageProps> = ({
 
               <div className="space-y-2">
 
-                {question.relatedResources.map((resource: Resource) => (
+                {question.relatedResources.map((resource: Resource) => {
+                  const isApiDownload = resource.url?.startsWith('/api/');
+                  const handleResourceClick = async (e: React.MouseEvent) => {
+                    if (!isApiDownload) return; // external URLs open normally
+                    e.preventDefault();
+                    const token = localStorage.getItem('access_token') ?? '';
+                    try {
+                      // Fetch the presigned redirect with auth header
+                      const resp = await fetch(resource.url, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        redirect: 'follow',
+                      });
+                      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                      // resp.url is the final presigned MinIO URL after the redirect
+                      window.open(resp.url, '_blank', 'noopener,noreferrer');
+                    } catch {
+                      // Fallback: append token as query param (works for non-CORS environments)
+                      window.open(`${resource.url}?token=${encodeURIComponent(token)}`, '_blank', 'noopener,noreferrer');
+                    }
+                  };
 
-                  <a
-
-                    key={resource.id}
-
-                    href={resource.url}
-
-                    target="_blank"
-
-                    rel="noopener noreferrer"
-
-                    className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl hover:border-emerald-500/30 transition-all group"
-
-                  >
-
-                    <div className="flex items-center gap-3">
-
-                      <div className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-
-                        {resource.type}
-
+                  return (
+                    <a
+                      key={resource.id}
+                      href={resource.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleResourceClick}
+                      className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl hover:border-emerald-500/30 transition-all group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                          {resource.type}
+                        </div>
+                        <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">{resource.title}</span>
                       </div>
-
-                      <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">{resource.title}</span>
-
-                    </div>
-
-                    <ExternalLink size={12} className="text-slate-600 group-hover:text-emerald-500 transition-colors" />
-
-                  </a>
-
-                ))}
+                      <ExternalLink size={12} className="text-slate-600 group-hover:text-emerald-500 transition-colors" />
+                    </a>
+                  );
+                })}
 
               </div>
 
